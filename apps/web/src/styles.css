@@ -446,15 +446,18 @@ td strong, td small { display: block; }
   .sidebar__note > div { position: absolute; width: 0.0625rem; height: 0.0625rem; overflow: hidden; clip: rect(0 0 0 0); }
   .topbar { left: var(--sidebar-mid); }
   .main-content { width: calc(100% - var(--sidebar-mid)); margin-left: var(--sidebar-mid); padding-left: var(--space-5); padding-right: var(--space-5); }
-  .trend-panel { grid-column: span 8; }
-  .rising-topics { grid-column: span 4; }
-  .risk-evidence { grid-column: 1 / -1; }
   .category-problem-panel { grid-column: span 8; }
   .sentiment-panel { grid-column: span 4; }
   .insights-layout { grid-template-columns: 1fr 1.1fr; }
   .evidence-rail { grid-column: 1 / -1; position: relative; top: auto; }
   .detail-layout { grid-template-columns: 2fr 1fr; }
   .correction-panel { grid-column: 1 / -1; position: relative; top: auto; }
+}
+
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .trend-panel { grid-column: span 8; }
+  .rising-topics { grid-column: span 4; }
+  .risk-evidence { grid-column: 1 / -1; }
 }
 
 @media (max-width: 1023px) {

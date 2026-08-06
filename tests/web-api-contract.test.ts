@@ -49,6 +49,17 @@ test("Web保留证据深链路由且只展示四项当前主导航", async () =>
   assert.match(navigationBlock, /\/data-management/);
 });
 
+test("常见桌面宽度保持问题变化、热榜和代表性原话三栏", async () => {
+  const styles = await source("apps/web/src/styles.css");
+  assert.match(styles, /\.trend-panel \{ grid-column: span 6;/);
+  assert.match(styles, /\.rising-topics, \.risk-evidence \{ grid-column: span 3;/);
+
+  const desktopCollapseBlock = styles.match(/@media \(max-width: 1439px\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+  assert.doesNotMatch(desktopCollapseBlock, /\.trend-panel|\.rising-topics|\.risk-evidence/);
+
+  assert.match(styles, /@media \(min-width: 1024px\) and \(max-width: 1199px\)/);
+});
+
 test("模拟fixture明确标识模拟且不包含真实网络链接", async () => {
   const manifest = JSON.parse(await source("fixtures/web-api/manifest.json")) as {
     isSimulated?: boolean;

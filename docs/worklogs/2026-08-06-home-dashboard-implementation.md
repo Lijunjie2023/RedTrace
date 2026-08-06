@@ -30,6 +30,11 @@
 - `npm run build --workspace @readtrace/web`：通过。
 - `git diff --check -- apps/web docs/worklogs/2026-08-06-home-dashboard-implementation.md`：通过。
 
+## 线上布局反馈修正
+
+- 常见1366像素桌面宽度继续保持“问题变化 / 问题热榜 / 代表性原话”三栏同一行。
+- 仅在1200像素以下改为趋势与热榜同一行、代表性原话下一行；1023像素以下维持单栏。
+
 ## 未执行
 
 - 本次没有提交、推送或部署代码。
