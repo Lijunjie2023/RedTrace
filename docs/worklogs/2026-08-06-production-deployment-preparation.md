@@ -39,3 +39,16 @@
 - 在Nginx的`http`上下文增加登录POST请求限速区，在精确会话端点应用限速，并保留通用`/api/`代理。
 - systemd改用`ProtectSystem=strict`和项目路径只读保护。
 - 更新与回滚流程统一为停止API、更新或检出代码、安装依赖、检查构建、发布静态文件、更新配置、重载systemd、校验Nginx、启动API和重载Nginx的顺序。
+
+## Alibaba Cloud Linux 3兼容性调整
+
+- 目标服务器的systemd不支持`ProtectKernelLogs`服务指令，`systemd-analyze verify`会将其报告为未知配置项。本次仅移除该指令，其余systemd加固配置保持不变。
+
+## React Router临时风险豁免
+
+- 安全公告`GHSA-qwww-vcr4-c8h2`影响当前锁定的React Router 7.18.2，但已确认其攻击面仅存在于实验性的RSC和Server Action能力。
+- ReadTrace当前采用Vite静态SPA、`BrowserRouter`和独立Fastify API，没有使用受影响的服务端执行链路，因此该漏洞在当前架构中不可达，本次不阻断上线。
+- 豁免期间禁止引入RSC、Server Action、Framework Mode、SSR、服务端route action，以及`@react-router/dev`、`@react-router/node`或`@react-router/serve`。
+- 最迟在2026-09-06完成复查，同时每次部署前都要重新检查公告、锁文件版本和项目攻击面；任一豁免前提发生变化时立即停止沿用本结论。
+- 如果React Router 7.x发布修复版本，应同步升级`react-router-dom`和`react-router`并重新执行类型检查、测试和构建。
+- 如果7.x没有可用修复版，升级到8.3.0前必须先满足Node.js不低于22.22、React不低于19.2.7，并完成对应兼容迁移和完整回归验证。

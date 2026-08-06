@@ -26,7 +26,6 @@ ReadOnlyPaths=/opt/readtrace/current
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-ProtectKernelLogs=true
 RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
