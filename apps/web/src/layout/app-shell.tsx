@@ -7,14 +7,13 @@ import { formatDateTime } from "../utils/format";
 
 const navigation = [
   ["/overview", "舆情概览", "overview"],
-  ["/insights", "问题分析", "insights"],
-  ["/content", "内容明细", "content"],
   ["/keywords", "关键词", "keywords"],
+  ["/data-management", "数据管理", "database"],
   ["/brands", "监控设置", "settings"]
 ] as const;
 
 const pageNames: Record<string, string> = {
-  overview: "舆情概览", insights: "问题分析", keywords: "关键词", content: "内容明细", brands: "监控设置", "data-status": "数据状态"
+  overview: "舆情概览", insights: "问题分析", keywords: "关键词", content: "内容明细", brands: "监控设置", "data-management": "数据管理", "data-status": "数据状态"
 };
 
 interface UnsavedChangesContextValue {

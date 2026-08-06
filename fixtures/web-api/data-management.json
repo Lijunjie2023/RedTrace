@@ -1,0 +1,10 @@
+{
+  "totalPosts": 18,
+  "totalComments": 46,
+  "aiClassifiedPosts": 14,
+  "aiClassifiedComments": 31,
+  "analysisRunningCount": 2,
+  "analysisFailedCount": 3,
+  "manualCorrectionCount": 2,
+  "lastAnalysisAt": "2026-08-06T01:00:00.000Z"
+}

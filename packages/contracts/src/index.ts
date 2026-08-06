@@ -243,6 +243,19 @@ export const OverviewDataSchema = z.object({
 
 export type OverviewData = z.infer<typeof OverviewDataSchema>;
 
+export const DataManagementSummarySchema = z.object({
+  totalPosts: z.number().int().min(0),
+  totalComments: z.number().int().min(0),
+  aiClassifiedPosts: z.number().int().min(0),
+  aiClassifiedComments: z.number().int().min(0),
+  analysisRunningCount: z.number().int().min(0),
+  analysisFailedCount: z.number().int().min(0),
+  manualCorrectionCount: z.number().int().min(0),
+  lastAnalysisAt: z.string().datetime().nullable()
+});
+
+export type DataManagementSummary = z.infer<typeof DataManagementSummarySchema>;
+
 export const TopicSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -285,6 +298,7 @@ export type ContentDetail = z.infer<typeof ContentDetailSchema>;
 
 export const FixtureBundleSchema = z.object({
   overview: OverviewDataSchema,
+  dataManagement: DataManagementSummarySchema,
   topics: z.array(TopicSchema),
   keywords: z.array(KeywordSchema),
   evidence: z.array(EvidenceRefSchema),

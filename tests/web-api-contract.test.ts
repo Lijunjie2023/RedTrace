@@ -25,7 +25,7 @@ test("前后端统一使用v1采集任务路由", async () => {
   assert.doesNotMatch(client, /collectionTasks/);
 });
 
-test("Web提供七条业务路由且只有五项主导航", async () => {
+test("Web保留证据深链路由且只展示四项当前主导航", async () => {
   const [app, shell] = await Promise.all([
     source("apps/web/src/app.tsx"),
     source("apps/web/src/layout/app-shell.tsx")
@@ -34,15 +34,19 @@ test("Web提供七条业务路由且只有五项主导航", async () => {
     "/login",
     "/overview",
     "/insights",
+    "/keywords",
     "/content",
     "/content/:contentType/:id",
     "/brands",
+    "/data-management",
     "/data-status"
   ];
   for (const route of routes) assert.match(app, new RegExp(`path=\\"${route.replaceAll("/", "\\/")}\\"`));
   assert.match(shell, /const navigation = \[/);
   const navigationBlock = shell.match(/const navigation = \[([\s\S]*?)\] as const/)?.[1] ?? "";
-  assert.equal((navigationBlock.match(/\["\//g) ?? []).length, 5);
+  assert.equal((navigationBlock.match(/\["\//g) ?? []).length, 4);
+  assert.doesNotMatch(navigationBlock, /\/insights|\/content/);
+  assert.match(navigationBlock, /\/data-management/);
 });
 
 test("模拟fixture明确标识模拟且不包含真实网络链接", async () => {
@@ -55,6 +59,7 @@ test("模拟fixture明确标识模拟且不包含真实网络链接", async () =
 
   const fixtureNames = [
     "overview.json",
+    "data-management.json",
     "insights.json",
     "contents.json",
     "brands.json",

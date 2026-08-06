@@ -5,6 +5,7 @@ import type {
   CollectionTaskSummary,
   ContentDetail,
   ContentSummary,
+  DataManagementSummary,
   EffectiveAnalysis,
   OverviewData
 } from "@readtrace/contracts";
@@ -245,7 +246,7 @@ function overviewScope(options: ListOptions): OverviewScope {
         FROM analysis_candidates ar
       ) ranked
       WHERE ranked.analysis_rank = 1
-    ), effective_content AS (
+    ), unfiltered_effective_content AS (
       SELECT CAST(_ascii'POST' AS CHAR CHARACTER SET ascii) COLLATE ascii_bin AS content_type,
              p.id AS content_id, p.id AS post_id,
              p.published_at AS bucket_at, p.last_collected_at,
@@ -268,8 +269,13 @@ function overviewScope(options: ListOptions): OverviewScope {
       FROM scoped_comments c
       LEFT JOIN latest_analysis la ON la.content_type = _ascii'comment' COLLATE ascii_bin AND la.comment_id = c.id
       LEFT JOIN manual_corrections mc ON mc.comment_id = c.id
+    ), effective_content AS (
+      SELECT * FROM unfiltered_effective_content
+      ${options.categoryIds
+        ? `WHERE category_id IN (${options.categoryIds.map(() => "?").join(",")})`
+        : ""}
     )`,
-    params: postParams
+    params: [...postParams, ...(options.categoryIds ?? [])]
   };
 }
 
@@ -376,7 +382,7 @@ export class MysqlRepository implements DataRepository {
       ), brandParams),
       this.pool.query<RowDataPacket[]>(withScope(
         `SELECT ci.id AS category_id, ci.display_name AS category_name, COUNT(*) AS content_count
-         FROM effective_content ec
+         FROM unfiltered_effective_content ec
          INNER JOIN classification_items ci ON ci.id = ec.category_id AND ci.classification_type = 'category'
          GROUP BY ci.id, ci.display_name
          ORDER BY content_count DESC, ci.sort_order, ci.id
@@ -388,6 +394,7 @@ export class MysqlRepository implements DataRepository {
         `SELECT ci.id AS problem_type_id, ci.display_name AS problem_type_name, COUNT(*) AS content_count
          FROM effective_content ec
          INNER JOIN classification_items ci ON ${classificationMembership("problem_type", "$.problemTypeIds", "analysis_problem_types")}
+         WHERE LOWER(COALESCE(ec.sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin
          GROUP BY ci.id, ci.display_name
          ORDER BY content_count DESC, ci.sort_order, ci.id
          LIMIT 10`
@@ -396,6 +403,7 @@ export class MysqlRepository implements DataRepository {
         `SELECT ci.id AS topic_id, ci.display_name AS topic_name, COUNT(*) AS evidence_count
          FROM effective_content ec
          INNER JOIN classification_items ci ON ${classificationMembership("topic", "$.topicIds", "analysis_topics")}
+         WHERE LOWER(COALESCE(ec.sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin
          GROUP BY ci.id, ci.display_name
          ORDER BY evidence_count DESC, ci.sort_order, ci.id
          LIMIT 10`
@@ -445,6 +453,43 @@ export class MysqlRepository implements DataRepository {
       highRiskContents,
       collectionHealth,
       lastSuccessfulCollectionAt
+    };
+  }
+
+  async getDataManagementSummary(): Promise<DataManagementSummary> {
+    const [rows] = await this.pool.query<RowDataPacket[]>(`
+      WITH ranked_analysis AS (
+        SELECT ar.content_type, ar.post_id, ar.comment_id, ar.status, ar.updated_at,
+               ROW_NUMBER() OVER (
+                 PARTITION BY ar.content_type, COALESCE(ar.post_id, ar.comment_id)
+                 ORDER BY ar.updated_at DESC, ar.id DESC
+               ) AS status_rank
+        FROM analysis_records ar
+      ), latest_analysis_status AS (
+        SELECT * FROM ranked_analysis WHERE status_rank = 1
+      )
+      SELECT
+        (SELECT COUNT(*) FROM posts) AS total_posts,
+        (SELECT COUNT(*) FROM comments) AS total_comments,
+        (SELECT COUNT(DISTINCT post_id) FROM analysis_records
+          WHERE content_type = 'post' AND status = 'success' AND post_id IS NOT NULL) AS ai_classified_posts,
+        (SELECT COUNT(DISTINCT comment_id) FROM analysis_records
+          WHERE content_type = 'comment' AND status = 'success' AND comment_id IS NOT NULL) AS ai_classified_comments,
+        (SELECT COUNT(*) FROM latest_analysis_status WHERE status = 'running') AS analysis_running_count,
+        (SELECT COUNT(*) FROM latest_analysis_status WHERE status = 'failed') AS analysis_failed_count,
+        (SELECT COUNT(*) FROM manual_corrections WHERE deleted_at IS NULL) AS manual_correction_count,
+        (SELECT MAX(completed_at) FROM analysis_records WHERE status = 'success') AS last_analysis_at
+    `);
+    const row = rows[0] ?? ({} as RowDataPacket);
+    return {
+      totalPosts: Number(row.total_posts ?? 0),
+      totalComments: Number(row.total_comments ?? 0),
+      aiClassifiedPosts: Number(row.ai_classified_posts ?? 0),
+      aiClassifiedComments: Number(row.ai_classified_comments ?? 0),
+      analysisRunningCount: Number(row.analysis_running_count ?? 0),
+      analysisFailedCount: Number(row.analysis_failed_count ?? 0),
+      manualCorrectionCount: Number(row.manual_correction_count ?? 0),
+      lastAnalysisAt: iso(row.last_analysis_at ?? null)
     };
   }
 
@@ -498,7 +543,65 @@ export class MysqlRepository implements DataRepository {
 
   async listTopics(): Promise<never> { dataNotReady(); }
   async listKeywords(): Promise<never> { dataNotReady(); }
-  async listTopicEvidence(): Promise<never> { dataNotReady(); }
+  async listTopicEvidence(
+    topicId: string,
+    options: ListOptions
+  ): Promise<Page<ContentDetail["context"][number]>> {
+    const [topicRows] = await this.pool.query<RowDataPacket[]>(
+      "SELECT id FROM classification_items WHERE id = ? AND classification_type = 'topic' LIMIT 1",
+      [topicId]
+    );
+    if (topicRows.length === 0) {
+      throw new RepositoryError("NOT_FOUND", 404, false, "原因主题不存在。");
+    }
+
+    const scope = overviewScope(options);
+    const topicMembership = `(
+      (JSON_CONTAINS_PATH(ec.patch_json, 'one', '$.topicIds')
+        AND JSON_CONTAINS(JSON_EXTRACT(ec.patch_json, '$.topicIds'), JSON_QUOTE(?)))
+      OR
+      (NOT JSON_CONTAINS_PATH(COALESCE(ec.patch_json, JSON_OBJECT()), 'one', '$.topicIds')
+        AND EXISTS (
+          SELECT 1 FROM analysis_topics relation
+          WHERE relation.analysis_record_id = ec.analysis_record_id
+            AND relation.classification_item_id = ?
+        ))
+    )`;
+    const typeClause = options.contentType ? "AND ec.content_type = ?" : "";
+    const filterParams = [topicId, topicId, ...(options.contentType ? [options.contentType] : [])];
+    const queryPrefix = `${scope.cte}\n`;
+    const [countRows] = await this.pool.query<CountRow[]>(
+      `${queryPrefix}SELECT COUNT(*) AS total FROM effective_content ec
+       WHERE ${topicMembership}
+         AND LOWER(COALESCE(ec.sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin
+         ${typeClause}`,
+      [...scope.params, ...filterParams]
+    );
+    const offset = (options.page - 1) * options.pageSize;
+    const [targets] = await this.pool.query<RowDataPacket[]>(
+      `${queryPrefix}SELECT ec.content_type, ec.content_id
+       FROM effective_content ec
+       WHERE ${topicMembership}
+         AND LOWER(COALESCE(ec.sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin
+         ${typeClause}
+       ORDER BY ec.last_collected_at ${options.sortOrder}, ec.content_type, ec.content_id ${options.sortOrder}
+       LIMIT ? OFFSET ?`,
+      [...scope.params, ...filterParams, options.pageSize, offset]
+    );
+    const summaries = await this.loadOverviewContents(targets);
+    const items = summaries.map((item) => ({
+      contentType: item.contentType,
+      contentId: item.id,
+      evidenceOrigin: item.evidenceOrigin,
+      excerpt: item.excerpt,
+      authorDisplayName: item.authorDisplayName,
+      publishedAt: item.publishedAt,
+      likedCount: item.likedCount,
+      sourceUrl: item.sourceUrl,
+      canOpenOriginal: item.canOpenOriginal
+    }));
+    return page(items, Number(countRows[0]?.total ?? 0), options);
+  }
   async listClassifications(options: ListOptions): Promise<Page<ClassificationItem>> {
     const offset = (options.page - 1) * options.pageSize;
     const clauses: string[] = [];

@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, ContractError, type ContentSummary } from "../api/client";
 import { useResponseMeta } from "../api/meta-store";
@@ -47,6 +47,10 @@ export function ErrorNotice({ error, retry, compact = false }: { error: unknown;
       ? ["数据服务暂时不可用", "服务正在恢复，可以稍后重试或查看采集状态。"]
       : code === "CONTRACT_ERROR"
         ? ["数据格式异常", "接口返回内容与当前版本不一致，请联系维护人员。"]
+        : code === "NOT_FOUND"
+          ? ["请求内容不存在", "这条内容可能已被删除，或者当前链接已经失效。"]
+          : code === "INVALID_ARGUMENT"
+            ? ["筛选条件有误", "请检查日期范围和筛选条件后重新加载。"]
         : ["无法连接数据服务", "请检查网络连接，或稍后重新加载。"];
   return (
     <div className={`notice notice--error ${compact ? "notice--compact" : ""}`} role="alert">
@@ -111,6 +115,36 @@ export function ExportButton({ filters }: { filters: URLSearchParams }): ReactNo
   return <div className="export-unavailable"><button className="button button--primary" type="button" disabled aria-describedby="export-unavailable-note">{label}</button><small id="export-unavailable-note">当前版本不会生成空文件或不完整文件。</small></div>;
 }
 
+function MultiSelectFilter({ label, options, selected, placeholder, disabled, onChange }: {
+  label: string;
+  options: Array<{ id: string; name: string }>;
+  selected: string[];
+  placeholder: string;
+  disabled: boolean;
+  onChange: (ids: string[]) => void;
+}): ReactNode {
+  const [query, setQuery] = useState("");
+  const visible = options.filter((option) => option.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const selectedNames = selected.map((id) => options.find((option) => option.id === id)?.name ?? "已选项");
+  const summary = selected.length === 0 ? placeholder : selected.length === 1 ? selectedNames[0] : `已选${selected.length}项`;
+  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id]);
+  return (
+    <div className="multi-select-filter">
+      <span className="multi-select-filter__label">{label}</span>
+      <details className={disabled ? "is-disabled" : ""}>
+        <summary aria-label={`${label}：${summary}`} aria-disabled={disabled}>{disabled ? "正在读取" : summary}<span aria-hidden="true">⌄</span></summary>
+        {!disabled ? <div className="multi-select-filter__popover">
+          <label className="multi-select-filter__search"><span className="visually-hidden">搜索{label}</span><input type="search" value={query} placeholder={`搜索${label}`} onChange={(event) => setQuery(event.target.value)} /></label>
+          <div className="multi-select-filter__actions"><button type="button" onClick={() => onChange(options.map((option) => option.id))}>全选</button><button type="button" onClick={() => onChange([])}>清空</button></div>
+          <div className="multi-select-filter__options">
+            {visible.length ? visible.map((option) => <label key={option.id}><input type="checkbox" checked={selected.includes(option.id)} onChange={() => toggle(option.id)} /><span>{option.name}</span></label>) : <p>没有匹配项</p>}
+          </div>
+        </div> : null}
+      </details>
+    </div>
+  );
+}
+
 export function FilterBar({ search, setSearch, showSentiment = true, showCategory = false, showDate = true }: {
   search: URLSearchParams;
   setSearch: (next: URLSearchParams) => void;
@@ -120,20 +154,27 @@ export function FilterBar({ search, setSearch, showSentiment = true, showCategor
 }): ReactNode {
   const brandLoader = useMemo(() => () => api.getBrands(), []);
   const brands = useResource(brandLoader, []);
+  const classificationLoader = useMemo(() => () => api.getClassifications(), []);
+  const classifications = useResource(classificationLoader, []);
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(search);
     if (value) next.set(key, value); else next.delete(key);
+    if (key === "brandIds" || key === "categoryIds") next.delete("topicId");
     next.delete("page");
     setSearch(next);
   };
   const clear = () => setSearch(new URLSearchParams());
-  const selectedBrandId = search.get("brandIds") ?? "";
-  const selectedBrandKnown = brands.data?.items.some((brand) => brand.id === selectedBrandId) ?? false;
+  const selectedBrandIds = (search.get("brandIds") ?? "").split(",").filter(Boolean);
+  const selectedCategoryIds = (search.get("categoryIds") ?? "").split(",").filter(Boolean);
+  const categoryOptions = classifications.data?.items
+    .filter((item) => item.classificationType === "CATEGORY" && item.isEnabled)
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map((item) => ({ id: item.id, name: item.displayName })) ?? [];
   return (
     <div className="filter-bar" aria-label="数据筛选">
       {showDate ? <><label><span>开始时间</span><input type="date" value={search.get("from")?.slice(0, 10) ?? ""} onChange={(event) => update("from", event.target.value ? `${event.target.value}T00:00:00+08:00` : "")} /></label><label><span>结束时间</span><input type="date" value={search.get("to")?.slice(0, 10) ?? ""} onChange={(event) => update("to", event.target.value ? `${event.target.value}T23:59:59+08:00` : "")} /></label></> : null}
-      <label><span>监控品牌</span><select value={selectedBrandId} disabled={brands.loading || Boolean(brands.error)} onChange={(event) => update("brandIds", event.target.value)}><option value="">{brands.loading ? "正在读取品牌" : brands.error ? "品牌列表暂时不可用" : brands.data?.items.length ? "全部品牌" : "暂无监控品牌"}</option>{selectedBrandId && !selectedBrandKnown ? <option value={selectedBrandId}>已选品牌</option> : null}{brands.data?.items.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label>
-      {showCategory ? <label><span>产品品类</span><select disabled aria-describedby="overview-category-note"><option>全部品类</option></select><small id="overview-category-note">品类筛选暂不可用</small></label> : null}
+      <MultiSelectFilter label="监控品牌" options={brands.data?.items.map((brand) => ({ id: brand.id, name: brand.name })) ?? []} selected={selectedBrandIds} placeholder={brands.error ? "品牌暂不可用" : "全部品牌"} disabled={brands.loading || Boolean(brands.error)} onChange={(ids) => update("brandIds", ids.join(","))} />
+      {showCategory ? <MultiSelectFilter label="产品品类" options={categoryOptions} selected={selectedCategoryIds} placeholder={classifications.error ? "品类暂不可用" : "全部品类"} disabled={classifications.loading || Boolean(classifications.error)} onChange={(ids) => update("categoryIds", ids.join(","))} /> : null}
       {showSentiment ? <label><span>情感倾向</span><select value={search.get("sentiments") ?? search.get("sentiment") ?? ""} onChange={(event) => update("sentiments", event.target.value)}><option value="">全部</option><option value="NEGATIVE">负向</option><option value="NEUTRAL">中性</option><option value="POSITIVE">正向</option></select></label> : null}
       {search.size > 0 ? <button className="button button--quiet" type="button" onClick={clear}>清除筛选</button> : null}
     </div>

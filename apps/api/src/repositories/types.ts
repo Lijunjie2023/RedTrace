@@ -5,6 +5,7 @@ import type {
   CollectionStatusSummary,
   ContentDetail,
   ContentSummary,
+  DataManagementSummary,
   EffectiveAnalysis,
   ErrorCode,
   Keyword,
@@ -55,6 +56,7 @@ export type OptionalPatch<T> = { [Key in keyof T]?: T[Key] | undefined };
 export interface DataRepository {
   close(): Promise<void>;
   getOverview(options: ListOptions): Promise<OverviewData>;
+  getDataManagementSummary(): Promise<DataManagementSummary>;
   listTopics(options: ListOptions): Promise<Page<Topic>>;
   listKeywords(options: ListOptions): Promise<Page<Keyword>>;
   listTopicEvidence(topicId: string, options: ListOptions): Promise<Page<ContentDetail["context"][number]>>;

@@ -6,6 +6,7 @@ import {
   CollectionTaskSummarySchema,
   ContentDetailSchema,
   ContentSummarySchema,
+  DataManagementSummarySchema,
   EffectiveAnalysisSchema,
   EvidenceRefSchema,
   KeywordSchema,
@@ -18,6 +19,7 @@ import {
   type CollectionTaskSummary,
   type ContentDetail,
   type ContentSummary,
+  type DataManagementSummary,
   type EffectiveAnalysis,
   type Keyword,
   type OverviewData,
@@ -128,9 +130,12 @@ export const api = {
     const response = await request(`/keywords${queryString(search)}`, KeywordPageSchema);
     return { ...asPage(response), analysisStatus: Array.isArray(response.data) ? undefined : response.data.analysisStatus };
   },
-  getTopicEvidence: async (topicId: string): Promise<Paginated<Evidence>> => asPage(
-    await request(`/topics/${encodeURIComponent(topicId)}/evidence?page=1&pageSize=20`, EvidencePageSchema)
-  ),
+  getTopicEvidence: async (topicId: string, filters = new URLSearchParams()): Promise<Paginated<Evidence>> => {
+    const search = new URLSearchParams(filters);
+    search.set("page", "1");
+    search.set("pageSize", "20");
+    return asPage(await request(`/topics/${encodeURIComponent(topicId)}/evidence${queryString(search)}`, EvidencePageSchema));
+  },
   getContents: async (search: URLSearchParams): Promise<Paginated<ContentSummary>> => asPage(
     await request(`/contents${queryString(search)}`, ContentPageSchema)
   ),
@@ -161,6 +166,7 @@ export const api = {
   getClassifications: async (): Promise<Paginated<ClassificationItem>> => asPage(
     await request("/classifications?page=1&pageSize=100", ClassificationPageSchema)
   ),
+  getDataManagementSummary: () => request("/data-management/summary", DataManagementSummarySchema),
   getTasks: async (search: URLSearchParams): Promise<Paginated<CollectionTaskSummary> & {
     lastSuccessfulCollectionAt: string | null | undefined;
     consecutiveFailureCount: number | undefined;
@@ -182,4 +188,4 @@ export const api = {
   })
 };
 
-export type { Brand, BrandCreateInput, ClassificationItem, CollectionTaskSummary, ContentDetail, ContentSummary, EffectiveAnalysis, Keyword, OverviewData, Topic };
+export type { Brand, BrandCreateInput, ClassificationItem, CollectionTaskSummary, ContentDetail, ContentSummary, DataManagementSummary, EffectiveAnalysis, Evidence, Keyword, OverviewData, Topic };

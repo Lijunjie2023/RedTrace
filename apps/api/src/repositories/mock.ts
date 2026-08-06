@@ -7,6 +7,7 @@ import {
   type CollectionTaskSummary,
   type ContentDetail,
   type ContentSummary,
+  type DataManagementSummary,
   type EffectiveAnalysis,
   type FixtureBundle,
   type Keyword,
@@ -52,6 +53,7 @@ function rejectUnsupportedOptions(options: ListOptions, allowed: Array<keyof Lis
 export class MockRepository implements DataRepository {
   readonly fixtureVersion: string;
   private readonly overview: OverviewData;
+  private readonly dataManagement: DataManagementSummary;
   private readonly topics: Topic[];
   private readonly keywords: Keyword[];
   private readonly evidence: ContentDetail["context"];
@@ -63,6 +65,7 @@ export class MockRepository implements DataRepository {
   private constructor(manifest: Manifest, bundle: FixtureBundle) {
     this.fixtureVersion = manifest.fixtureVersion;
     this.overview = structuredClone(bundle.overview);
+    this.dataManagement = structuredClone(bundle.dataManagement);
     this.topics = structuredClone(bundle.topics);
     this.keywords = structuredClone(bundle.keywords);
     this.evidence = structuredClone(bundle.evidence);
@@ -73,9 +76,10 @@ export class MockRepository implements DataRepository {
   }
 
   static async create(): Promise<MockRepository> {
-    const [manifest, overview, insights, contents, brands, classifications, collectionRuns] = await Promise.all([
+    const [manifest, overview, dataManagement, insights, contents, brands, classifications, collectionRuns] = await Promise.all([
       readJson<Manifest>("manifest.json"),
       readJson<unknown>("overview.json"),
+      readJson<unknown>("data-management.json"),
       readJson<{ topics: unknown; keywords: unknown; evidence: unknown }>("insights.json"),
       readJson<unknown>("contents.json"),
       readJson<unknown>("brands.json"),
@@ -85,6 +89,7 @@ export class MockRepository implements DataRepository {
     if (!manifest.isSimulated || !manifest.fixtureVersion) throw new Error("fixture_manifest_invalid");
     const bundle = FixtureBundleSchema.parse({
       overview,
+      dataManagement,
       topics: insights.topics,
       keywords: insights.keywords,
       evidence: insights.evidence,
@@ -99,8 +104,82 @@ export class MockRepository implements DataRepository {
   async close(): Promise<void> {}
 
   async getOverview(options: ListOptions): Promise<OverviewData> {
-    rejectUnsupportedOptions(options, [], true);
-    return structuredClone(this.overview);
+    rejectUnsupportedOptions(options, ["from", "to", "brandIds", "categoryIds"]);
+    const contents = this.contents.filter((item) => this.matchesContent(item, options));
+    const { categoryIds: _ignoredCategoryIds, ...categoryFacetOptions } = options;
+    const categoryFacetContents = this.contents.filter((item) => this.matchesContent(item, categoryFacetOptions));
+    const categoryNames = new Map(this.classifications
+      .filter((item) => item.classificationType === "CATEGORY")
+      .map((item) => [item.id, item.displayName]));
+    const problemNames = new Map(this.classifications
+      .filter((item) => item.classificationType === "PROBLEM_TYPE")
+      .map((item) => [item.id, item.displayName]));
+    const brandNames = new Map(this.brands.map((brand) => [brand.id, brand.name]));
+    const trend = new Map<string, { positive: number; neutral: number; negative: number; unknown: number }>();
+    const brands = new Map<string, { contentCount: number; negativeCount: number }>();
+    const categories = new Map<string, number>();
+    const problems = new Map<string, number>();
+    const topics = new Map<string, number>();
+    for (const item of contents) {
+      const sentiment = item.effectiveAnalysis.sentiment.toLowerCase() as "positive" | "neutral" | "negative" | "unknown";
+      if (item.publishedAt) {
+        const bucket = item.publishedAt.slice(0, 10);
+        const counts = trend.get(bucket) ?? { positive: 0, neutral: 0, negative: 0, unknown: 0 };
+        counts[sentiment] += 1;
+        trend.set(bucket, counts);
+      }
+      for (const brandId of item.brandIds.filter((id) => !options.brandIds || options.brandIds.includes(id))) {
+        const counts = brands.get(brandId) ?? { contentCount: 0, negativeCount: 0 };
+        counts.contentCount += 1;
+        if (sentiment === "negative") counts.negativeCount += 1;
+        brands.set(brandId, counts);
+      }
+      if (sentiment === "negative") {
+        for (const id of item.effectiveAnalysis.problemTypeIds) problems.set(id, (problems.get(id) ?? 0) + 1);
+        for (const id of item.effectiveAnalysis.topicIds) topics.set(id, (topics.get(id) ?? 0) + 1);
+      }
+    }
+    for (const item of categoryFacetContents) {
+      const categoryId = item.effectiveAnalysis.categoryId;
+      if (categoryId) categories.set(categoryId, (categories.get(categoryId) ?? 0) + 1);
+    }
+    const negativeCount = contents.filter((item) => item.effectiveAnalysis.sentiment === "NEGATIVE").length;
+    return {
+      metrics: {
+        postCount: contents.filter((item) => item.contentType === "POST").length,
+        commentCount: contents.filter((item) => item.contentType === "COMMENT").length,
+        negativeCount,
+        negativeRatio: contents.length === 0 ? 0 : negativeCount / contents.length
+      },
+      sentimentTrend: [...trend].sort(([left], [right]) => left.localeCompare(right)).map(([bucket, counts]) => ({ bucket, ...counts })),
+      brandRanking: [...brands].map(([brandId, counts]) => ({ brandId, brandName: brandNames.get(brandId) ?? brandId, ...counts })),
+      categoryRanking: [...categories].map(([categoryId, contentCount]) => ({ categoryId, categoryName: categoryNames.get(categoryId) ?? categoryId, contentCount })),
+      problemTypeRanking: [...problems].map(([problemTypeId, contentCount]) => ({ problemTypeId, problemTypeName: problemNames.get(problemTypeId) ?? problemTypeId, contentCount })),
+      risingTopics: [...topics].map(([topicId, evidenceCount]) => ({
+        topicId,
+        topicName: this.topics.find((topic) => topic.id === topicId)?.name ?? topicId,
+        changeRatio: null,
+        evidenceCount
+      })),
+      highRiskContents: contents.filter((item) => item.effectiveAnalysis.riskLevel === "HIGH_RISK"),
+      collectionHealth: this.overview.collectionHealth,
+      lastSuccessfulCollectionAt: this.overview.lastSuccessfulCollectionAt
+    };
+  }
+
+  async getDataManagementSummary(): Promise<DataManagementSummary> {
+    return structuredClone(this.dataManagement);
+  }
+
+  private matchesContent(item: ContentDetail, options: ListOptions): boolean {
+    const scopePublishedAt = item.contentType === "COMMENT"
+      ? this.contents.find((candidate) => candidate.contentType === "POST" && candidate.id === item.postId)?.publishedAt ?? null
+      : item.publishedAt;
+    if (options.from && (!scopePublishedAt || scopePublishedAt < options.from)) return false;
+    if (options.to && (!scopePublishedAt || scopePublishedAt > options.to)) return false;
+    if (options.brandIds && !options.brandIds.some((brandId) => item.brandIds.includes(brandId))) return false;
+    if (options.categoryIds && (!item.effectiveAnalysis.categoryId || !options.categoryIds.includes(item.effectiveAnalysis.categoryId))) return false;
+    return true;
   }
 
   async listTopics(options: ListOptions): Promise<Page<Topic>> {
@@ -124,11 +203,17 @@ export class MockRepository implements DataRepository {
   }
 
   async listTopicEvidence(topicId: string, options: ListOptions): Promise<Page<ContentDetail["context"][number]>> {
-    rejectUnsupportedOptions(options, ["contentType", "keyword"]);
+    rejectUnsupportedOptions(options, ["contentType", "keyword", "from", "to", "brandIds", "categoryIds"]);
     if (!this.topics.some((topic) => topic.id === topicId)) {
       throw new RepositoryError("NOT_FOUND", 404, false, "原因主题不存在。");
     }
+    const matchingContentIds = new Set(this.contents
+      .filter((item) => item.effectiveAnalysis.sentiment === "NEGATIVE"
+        && item.effectiveAnalysis.topicIds.includes(topicId)
+        && this.matchesContent(item, options))
+      .map((item) => `${item.contentType}:${item.id}`));
     const items = this.evidence.filter((evidence) => {
+      if (!matchingContentIds.has(`${evidence.contentType}:${evidence.contentId}`)) return false;
       if (options.contentType && evidence.contentType !== options.contentType) return false;
       if (options.keyword && !evidence.excerpt?.toLowerCase().includes(options.keyword.toLowerCase())) return false;
       return true;

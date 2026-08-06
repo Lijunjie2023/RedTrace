@@ -12,6 +12,13 @@ function poolWithQuery(query: (sql: string) => RowDataPacket[]): Pool {
   } as unknown as Pool;
 }
 
+function poolWithParams(query: (sql: string, params: unknown[]) => RowDataPacket[]): Pool {
+  return {
+    query: async (sql: string, params?: unknown) => [query(sql, Array.isArray(params) ? params : []), []],
+    end: async () => undefined
+  } as unknown as Pool;
+}
+
 test("MySQL 概览在没有成功采集时返回可渲染的空状态", async () => {
   const repository = new MysqlRepository(poolWithQuery(() => []));
 
@@ -87,4 +94,82 @@ test("MySQL 概览使用真实聚合结果并保留健康状态", async () => {
     changeRatio: null,
     evidenceCount: 2
   });
+});
+
+test("MySQL 概览把品牌和品类筛选传入同一统计范围", async () => {
+  const calls: Array<{ sql: string; params: unknown[] }> = [];
+  const repository = new MysqlRepository(poolWithParams((sql, params) => {
+    calls.push({ sql, params });
+    if (sql.includes("FROM collection_tasks")) {
+      return [{ status: "success", finished_at: "2026-08-06T02:30:00.000Z" }] as RowDataPacket[];
+    }
+    return [];
+  }));
+
+  await repository.getOverview({
+    ...defaultOptions,
+    brandIds: ["brand-leader"],
+    categoryIds: ["category-fridge"]
+  });
+
+  const scopedCalls = calls.filter(({ sql }) => sql.includes("effective_content"));
+  assert.ok(scopedCalls.length > 0);
+  for (const call of scopedCalls) {
+    assert.match(call.sql, /unfiltered_effective_content/);
+    assert.match(call.sql, /WHERE category_id IN \(\?\)/);
+    assert.ok(call.params.includes("brand-leader"));
+    assert.ok(call.params.includes("category-fridge"));
+  }
+});
+
+test("MySQL 数据管理统计映射采集量、AI分类量和异常状态", async () => {
+  const repository = new MysqlRepository(poolWithQuery((sql) => {
+    assert.match(sql, /latest_analysis_status/);
+    assert.match(sql, /COUNT\(DISTINCT post_id\)/);
+    assert.match(sql, /COUNT\(DISTINCT comment_id\)/);
+    return [{
+      total_posts: 12,
+      total_comments: 34,
+      ai_classified_posts: 10,
+      ai_classified_comments: 21,
+      analysis_running_count: 2,
+      analysis_failed_count: 3,
+      manual_correction_count: 4,
+      last_analysis_at: "2026-08-06T06:00:00.000Z"
+    }] as RowDataPacket[];
+  }));
+
+  const summary = await repository.getDataManagementSummary();
+
+  assert.deepEqual(summary, {
+    totalPosts: 12,
+    totalComments: 34,
+    aiClassifiedPosts: 10,
+    aiClassifiedComments: 21,
+    analysisRunningCount: 2,
+    analysisFailedCount: 3,
+    manualCorrectionCount: 4,
+    lastAnalysisAt: "2026-08-06T06:00:00.000Z"
+  });
+});
+
+test("MySQL 问题原话与热榜统一限定为负向内容", async () => {
+  const evidenceQueries: string[] = [];
+  const repository = new MysqlRepository(poolWithParams((sql) => {
+    if (sql.includes("SELECT id FROM classification_items")) {
+      return [{ id: "topic-noise" }] as RowDataPacket[];
+    }
+    evidenceQueries.push(sql);
+    if (sql.includes("COUNT(*) AS total")) return [{ total: 0 }] as RowDataPacket[];
+    return [];
+  }));
+
+  const result = await repository.listTopicEvidence("topic-noise", defaultOptions);
+
+  assert.equal(result.totalItems, 0);
+  assert.ok(evidenceQueries.length >= 2);
+  for (const sql of evidenceQueries) {
+    assert.match(sql, /LOWER\(COALESCE\(ec\.sentiment/);
+    assert.match(sql, /_ascii'negative'/);
+  }
 });

@@ -226,8 +226,11 @@ export async function createServer(config: RuntimeConfig): Promise<FastifyInstan
 
   app.get(`${API_ROOT}/overview`, async (request) => {
     const options = parsePage(request.query);
-    rejectRouteFilters(options, ["from", "to", "brandIds"]);
+    rejectRouteFilters(options, ["from", "to", "brandIds", "categoryIds"]);
     return ok(request, await repository.getOverview(options));
+  });
+  app.get(`${API_ROOT}/data-management/summary`, async (request) => {
+    return ok(request, await repository.getDataManagementSummary());
   });
   app.get(`${API_ROOT}/topics`, async (request) => {
     const options = parsePage(request.query);
@@ -244,7 +247,7 @@ export async function createServer(config: RuntimeConfig): Promise<FastifyInstan
   app.get(`${API_ROOT}/topics/:topicId/evidence`, async (request) => {
     const { topicId } = z.object({ topicId: z.string().min(1) }).parse(request.params);
     const options = parsePage(request.query);
-    rejectRouteFilters(options, ["contentType"]);
+    rejectRouteFilters(options, ["contentType", "from", "to", "brandIds", "categoryIds"]);
     const result = await repository.listTopicEvidence(topicId, options);
     return ok(request, result.items, result);
   });
