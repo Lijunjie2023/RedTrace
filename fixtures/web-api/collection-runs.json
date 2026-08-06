@@ -1,0 +1,35 @@
+{
+  "items": [
+    {
+      "id": "mock-task-001",
+      "brandId": "mock-brand-leader",
+      "triggerType": "SCHEDULED",
+      "status": "SUCCESS",
+      "startedAt": "2026-08-06T00:20:00.000Z",
+      "finishedAt": "2026-08-06T00:30:00.000Z",
+      "succeededPostCount": 18,
+      "failedPostCount": 0,
+      "errorType": null,
+      "errorSummary": null,
+      "retryOfTaskId": null
+    },
+    {
+      "id": "mock-task-002",
+      "brandId": "mock-brand-leader",
+      "triggerType": "MANUAL",
+      "status": "PARTIAL_SUCCESS",
+      "startedAt": "2026-08-05T23:10:00.000Z",
+      "finishedAt": "2026-08-05T23:15:00.000Z",
+      "succeededPostCount": 7,
+      "failedPostCount": 1,
+      "errorType": "structure_changed",
+      "errorSummary": "模拟错误摘要，不包含请求正文或凭据。",
+      "retryOfTaskId": null
+    }
+  ],
+  "status": {
+    "lastSuccessfulCollectionAt": "2026-08-06T00:30:00.000Z",
+    "consecutiveFailureCount": 0,
+    "volumeAnomaly": false
+  }
+}

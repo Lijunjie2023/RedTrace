@@ -1,0 +1,65 @@
+{
+  "metrics": {
+    "postCount": 18,
+    "commentCount": 46,
+    "negativeCount": 11,
+    "negativeRatio": 0.1719
+  },
+  "sentimentTrend": [
+    { "bucket": "2026-08-01", "positive": 5, "neutral": 4, "negative": 3, "unknown": 1 },
+    { "bucket": "2026-08-02", "positive": 6, "neutral": 5, "negative": 4, "unknown": 0 }
+  ],
+  "brandRanking": [
+    { "brandId": "mock-brand-leader", "brandName": "Leader", "contentCount": 64, "negativeCount": 11 }
+  ],
+  "categoryRanking": [
+    { "categoryId": "mock-category-refrigerator", "categoryName": "冰箱", "contentCount": 38 },
+    { "categoryId": "mock-category-washer", "categoryName": "洗衣机", "contentCount": 26 }
+  ],
+  "problemTypeRanking": [
+    { "problemTypeId": "mock-problem-noise", "problemTypeName": "运行噪音", "contentCount": 7 },
+    { "problemTypeId": "mock-problem-service", "problemTypeName": "售后体验", "contentCount": 4 }
+  ],
+  "risingTopics": [
+    { "topicId": "mock-topic-noise", "topicName": "模拟主题：运行声音反馈", "changeRatio": 0.25, "evidenceCount": 2 }
+  ],
+  "highRiskContents": [
+    {
+      "id": "mock-post-001",
+      "contentType": "POST",
+      "postId": "mock-post-001",
+      "title": "模拟内容：冰箱运行声音体验记录",
+      "excerpt": "模拟文本，仅用于验证负面舆情卡片和证据入口。",
+      "authorDisplayName": "模拟用户甲",
+      "publishedAt": "2026-08-02T03:00:00.000Z",
+      "likedCount": 12,
+      "collectedCount": 3,
+      "commentCount": 2,
+      "sourceUrl": null,
+      "brandIds": ["mock-brand-leader"],
+      "effectiveAnalysis": {
+        "sentiment": "NEGATIVE",
+        "contentNature": "USAGE_SHARING",
+        "problemTypeIds": ["mock-problem-noise"],
+        "categoryId": "mock-category-refrigerator",
+        "productSeries": null,
+        "productModel": null,
+        "userStage": "USAGE",
+        "riskLevel": "HIGH_RISK",
+        "confidence": "MEDIUM",
+        "topicIds": ["mock-topic-noise"],
+        "analysisOrigin": "SIMULATED",
+        "modelName": null,
+        "analyzedAt": "2026-08-02T04:00:00.000Z",
+        "correctedAt": null,
+        "version": 1
+      },
+      "evidenceOrigin": "SIMULATED",
+      "canOpenOriginal": false,
+      "firstCollectedAt": "2026-08-02T03:10:00.000Z",
+      "lastCollectedAt": "2026-08-02T04:10:00.000Z"
+    }
+  ],
+  "collectionHealth": "HEALTHY",
+  "lastSuccessfulCollectionAt": "2026-08-06T00:30:00.000Z"
+}

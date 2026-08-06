@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReadTrace 项目架构说明</title>
+  <style>
+    :root{--paper:#f4f0e6;--ink:#17201d;--muted:#66716b;--line:#c8c2b4;--green:#124c3d;--lime:#cbe861;--orange:#ef7048;--white:#fffdf7;--shadow:0 16px 50px rgba(23,32,29,.12)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:"Noto Serif SC","Songti SC","Microsoft YaHei",serif;line-height:1.75}
+    body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.35;background-image:radial-gradient(#17201d 0.5px,transparent .5px);background-size:7px 7px;z-index:-1}
+    a{color:inherit}.shell{max-width:1280px;margin:auto;padding:24px}.hero{min-height:74vh;display:grid;grid-template-columns:1.3fr .7fr;gap:24px;align-items:end;padding:7vw 0 5vw}
+    .eyebrow{font-family:Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--green);font-size:13px}.hero h1{font-size:clamp(56px,9vw,126px);line-height:.87;letter-spacing:-.06em;margin:20px 0 30px;max-width:900px}.hero h1 span{display:block;color:var(--green)}
+    .lead{font-size:clamp(18px,2vw,25px);max-width:780px}.stamp{border:2px solid var(--ink);padding:28px;transform:rotate(2deg);background:var(--lime);box-shadow:10px 10px 0 var(--ink)}.stamp strong{font-size:40px;display:block;line-height:1}.stamp small{font-family:Consolas,monospace}
+    nav{position:sticky;top:12px;z-index:10;display:flex;gap:8px;overflow:auto;padding:10px;background:rgba(255,253,247,.88);border:1px solid var(--line);backdrop-filter:blur(12px);box-shadow:var(--shadow)}nav a{white-space:nowrap;text-decoration:none;padding:8px 14px;font-family:"Microsoft YaHei",sans-serif;font-size:14px}nav a:hover{background:var(--ink);color:white}
+    section{padding:80px 0}.section-head{display:grid;grid-template-columns:120px 1fr;gap:24px;align-items:start;margin-bottom:36px}.num{font:700 60px/1 Consolas,monospace;color:var(--orange)}h2{font-size:clamp(34px,5vw,64px);line-height:1.05;margin:0;letter-spacing:-.04em}h3{font-size:24px;margin:0 0 10px}p{margin:0 0 14px}.muted{color:var(--muted)}
+    .callout{background:var(--green);color:white;padding:30px;border-left:12px solid var(--lime);font-size:20px}.callout strong{color:var(--lime)}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{background:var(--white);border:1px solid var(--line);padding:24px;box-shadow:0 5px 0 rgba(23,32,29,.08)}.card .tag,.tag{display:inline-block;padding:3px 9px;background:var(--lime);font:12px Consolas,monospace;margin-bottom:16px}.card code{font-family:Consolas,monospace;color:var(--green)}
+    .status{display:grid;grid-template-columns:1fr 1fr;gap:16px}.done{border-top:8px solid var(--green)}.todo{border-top:8px solid var(--orange)}ul{margin:10px 0;padding-left:22px}li{margin:7px 0}
+    .flow{display:grid;grid-template-columns:repeat(7,auto);align-items:center;gap:10px;overflow:auto;padding:28px;background:var(--ink);color:white}.node{min-width:130px;padding:18px;border:1px solid #61706a;background:#25302c;text-align:center}.node.current{border-color:var(--lime);box-shadow:inset 0 -5px var(--lime)}.arrow{font-size:26px;color:var(--orange)}
+    .tree{background:#121916;color:#dce8df;padding:30px;overflow:auto;font:14px/1.75 Consolas,"Microsoft YaHei",monospace;border-radius:2px}.tree b{color:var(--lime)}.tree em{color:#8ea199;font-style:normal}.tree .hot{color:#ff9270}
+    .folder{display:grid;grid-template-columns:240px 1fr;gap:0;border-top:1px solid var(--line)}.folder:last-child{border-bottom:1px solid var(--line)}.folder-name{padding:22px;font:700 18px Consolas,monospace;background:#e7e1d4}.folder-body{padding:22px;background:rgba(255,253,247,.65)}.file-list{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 24px;margin-top:12px}.file-list div{border-top:1px dotted var(--line);padding-top:8px}.file-list code{color:var(--green)}
+    table{width:100%;border-collapse:collapse;background:var(--white)}th,td{text-align:left;padding:15px;border-bottom:1px solid var(--line);vertical-align:top}th{background:var(--ink);color:white;font-family:"Microsoft YaHei",sans-serif}td:first-child{font-family:Consolas,monospace;white-space:nowrap}
+    details{background:var(--white);border:1px solid var(--line);margin:10px 0}summary{cursor:pointer;padding:18px;font-weight:700}details>div{padding:0 18px 18px}.warning{background:#fff0e8;border:2px solid var(--orange);padding:24px}.foot{border-top:1px solid var(--ink);padding:34px 0 60px;display:flex;justify-content:space-between;gap:20px;font-size:14px}
+    .reveal{opacity:0;transform:translateY(18px);transition:.6s ease}.reveal.show{opacity:1;transform:none}
+    @media(max-width:800px){.hero,.grid,.status{grid-template-columns:1fr}.hero{padding-top:60px}.section-head{grid-template-columns:1fr}.num{font-size:32px}.folder{grid-template-columns:1fr}.file-list{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.arrow{transform:rotate(90deg);text-align:center}.shell{padding:14px}.stamp{transform:none}.hero h1{font-size:58px}}
+    @media print{nav{display:none}.reveal{opacity:1;transform:none}section{break-inside:avoid;padding:30px 0}body:before{display:none}}
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="hero">
+    <div><div class="eyebrow">Repository field guide · 2026-08-06</div><h1>ReadTrace<span>项目架构地图</span></h1><p class="lead">给第一次接触代码的人看的仓库说明：这个项目想做什么、现在已经做到哪里、数据怎样流动，以及每个文件夹为什么存在。</p></div>
+    <aside class="stamp"><small>CURRENT STAGE</small><strong>底层能力<br>验证期</strong><p>已经有采集探针与数据库底座，还没有完整产品界面。</p></aside>
+  </header>
+  <nav aria-label="页内导航"><a href="#overview">一句话看懂</a><a href="#status">现状</a><a href="#tech">技术</a><a href="#flow">数据流</a><a href="#folders">文件夹</a><a href="#files">关键文件</a><a href="#run">怎么运行</a></nav>
+
+  <section id="overview" class="reveal"><div class="section-head"><div class="num">01</div><div><h2>一句话看懂</h2><p class="muted">先不要被文件名吓到，把它想成一条正在修建的舆情加工流水线。</p></div></div>
+    <div class="callout"><strong>ReadTrace 的目标：</strong>从小红书取得品牌相关帖子和评论，保存可追溯的原始证据，再分析负面原因，最终给领导、策划和运营查看。当前仓库完成的是流水线前半段的技术底座。</div>
+  </section>
+
+  <section id="status" class="reveal"><div class="section-head"><div class="num">02</div><div><h2>现在有什么，还缺什么</h2><p class="muted">“PRD 写了”不等于“代码已经有了”。这两类内容必须分开理解。</p></div></div>
+    <div class="status"><article class="card done"><span class="tag">已实现</span><h3>可以运行的底层能力</h3><ul><li>低频打开小红书并验证搜索、详情、评论的数据取得能力</li><li>识别登录、验证码和访问频繁等页面状态，并停止危险操作</li><li>对帖子、评论和原始快照进行脱敏、去重与结构化整理</li><li>连接 MySQL 8.0，执行数据库健康检查和只向前迁移</li><li>保存采集任务、帖子、评论、互动快照、品牌命中关系</li><li>提供租约锁和游标，避免多个任务重复采集或互相踩踏</li><li>使用自动化测试验证配置、迁移、持久化和协调逻辑</li></ul></article>
+      <article class="card todo"><span class="tag" style="background:var(--orange);color:white">尚未实现</span><h3>完整产品仍需建设</h3><ul><li>正式网页前端、后台接口和管理员登录</li><li>每小时自动调度以及可长期运行的正式采集服务</li><li>DeepSeek V4 情感、品类、问题类型与原因主题分析</li><li>舆情总览、内容明细、人工修正和数据状态页面</li><li>Excel 导出、分类配置与业务筛选</li><li>云服务器部署、监控告警与完整生产运维</li></ul></article></div>
+  </section>
+
+  <section id="tech" class="reveal"><div class="section-head"><div class="num">03</div><div><h2>用了什么技术</h2><p class="muted">技术只是工具。下面同时说明“它是什么”和“在本项目中做什么”。</p></div></div>
+    <div class="grid">
+      <article class="card"><span class="tag">RUNTIME</span><h3>Node.js ≥ 20</h3><p>让 JavaScript/TypeScript 可以不依赖网页，在电脑或服务器上运行。它是整个项目的运行底座。</p></article>
+      <article class="card"><span class="tag">LANGUAGE</span><h3>TypeScript 5.8</h3><p>带类型检查的 JavaScript。这里开启了严格模式，尽量让字段写错、空值遗漏等问题在运行前暴露。</p></article>
+      <article class="card"><span class="tag">BROWSER</span><h3>Playwright 1.54</h3><p>自动控制 Chromium 浏览器，用来低频验证小红书搜索页、详情页和首批评论的数据链路。</p></article>
+      <article class="card"><span class="tag">DATABASE</span><h3>MySQL 8.0</h3><p>长期保存采集任务、帖子、评论和快照。代码通过 <code>mysql2</code> 连接；当前项目<strong>不是 PostgreSQL</strong>。</p></article>
+      <article class="card"><span class="tag">CONFIG</span><h3>dotenv</h3><p>从本地环境文件读取数据库配置。真实密码放在被 Git 忽略的 <code>.env.local</code>，不会提交到仓库。</p></article>
+      <article class="card"><span class="tag">QUALITY</span><h3>tsc + node:test</h3><p>TypeScript 编译器负责类型检查，Node 自带测试框架负责自动验证关键逻辑，没有额外测试框架。</p></article>
+    </div>
+  </section>
+
+  <section id="flow" class="reveal"><div class="section-head"><div class="num">04</div><div><h2>数据怎样走</h2><p class="muted">带绿色底线的是当前已有代码。灰色节点是产品规划中的后续环节。</p></div></div>
+    <div class="flow"><div class="node current">小红书页面<br><small>搜索 / 详情 / 评论</small></div><div class="arrow">→</div><div class="node current">采集探针<br><small>Playwright</small></div><div class="arrow">→</div><div class="node current">清洗与脱敏<br><small>去重 / 规范化</small></div><div class="arrow">→</div><div class="node current">MySQL 数据库<br><small>证据与任务</small></div></div>
+    <div class="flow" style="margin-top:12px"><div class="node">模型分析<br><small>DeepSeek V4</small></div><div class="arrow">→</div><div class="node">业务接口<br><small>查询 / 修正 / 导出</small></div><div class="arrow">→</div><div class="node">网页界面<br><small>总览 / 明细 / 状态</small></div><div class="arrow">→</div><div class="node">领导 / 策划 / 运营</div></div>
+    <div class="warning" style="margin-top:18px"><strong>一个关键断点：</strong>采集探针目前把结果写到 <code>artifacts/</code>；数据库持久化模块已经能接收整理后的数据，但探针 CLI 还没有直接连接 MySQL。两块底座已存在，正式采集服务仍需把它们串起来。</div>
+  </section>
+
+  <section id="folders" class="reveal"><div class="section-head"><div class="num">05</div><div><h2>仓库目录地图</h2><p class="muted">先看鸟瞰图，再逐个文件夹解释。</p></div></div>
+<pre class="tree"><b>ReadTrace/</b>
+├─ <b>src/</b>                 <em>正式源代码</em>
+│  ├─ <b>xhs-probe/</b>       <em>小红书数据能力探针</em>
+│  └─ <b>db/</b>              <em>MySQL 连接、迁移、保存与任务协调</em>
+├─ <b>migrations/</b>          <em>数据库结构变更脚本</em>
+├─ <b>tests/</b>               <em>自动化测试</em>
+├─ <b>docs/</b>                <em>说明、验收标准、交接资料与工作日志</em>
+├─ <b>tasks/</b>               <em>产品需求文档 PRD</em>
+├─ <span class="hot">artifacts/</span>           <em>探针运行结果，本地生成、不提交</em>
+├─ <span class="hot">.local/</span>              <em>浏览器登录状态和运行锁，本地私密、不提交</em>
+├─ <span class="hot">node_modules/</span>        <em>安装的第三方代码，可重新生成</em>
+├─ <span class="hot">.test-dist/</span>          <em>测试编译产物，可重新生成</em>
+├─ package.json          <em>依赖与常用命令清单</em>
+├─ tsconfig*.json        <em>TypeScript 编译规则</em>
+├─ .env.example          <em>数据库配置示例，不含真实秘密</em>
+├─ .gitignore            <em>规定哪些本地文件不能提交</em>
+└─ AGENTS.md             <em>本项目协作与产品边界</em></pre>
+    <div style="margin-top:30px">
+      <div class="folder"><div class="folder-name">src/</div><div class="folder-body"><strong>产品代码的家。</strong>程序真正执行的逻辑都在这里。目前分成采集探针和数据库两个领域，边界比较清楚。</div></div>
+      <div class="folder"><div class="folder-name">migrations/</div><div class="folder-body"><strong>数据库的装修图纸。</strong><code>0001_collection_schema.sql</code> 创建 12 张业务表并初始化小红书数据来源。以后改表应新增编号文件，不回头篡改历史版本。</div></div>
+      <div class="folder"><div class="folder-name">tests/</div><div class="folder-body"><strong>自动检查清单。</strong>模拟各种输入和数据库行为，验证代码修改后没有破坏已有能力。文件名与被测模块基本对应。</div></div>
+      <div class="folder"><div class="folder-name">docs/</div><div class="folder-body"><strong>工程说明与过程档案。</strong><code>database.md</code> 和 <code>xhs-probe.md</code> 是使用说明；<code>pm-*.md</code> 是验收标准；<code>handoff/</code> 放交接资料；<code>worklogs/</code> 记录每次非平凡工作的过程。</div></div>
+      <div class="folder"><div class="folder-name">tasks/</div><div class="folder-body"><strong>产品要做什么。</strong>当前只有第一版 PRD，描述目标用户、页面、分析维度、验收条件和非功能要求。它是目标地图，不代表其中所有功能已经完成。</div></div>
+      <div class="folder"><div class="folder-name">artifacts/</div><div class="folder-body"><strong>探针的本地输出。</strong>每次运行产生 <code>report.json</code>、<code>posts.json</code>、<code>comments.json</code> 和脱敏后的 <code>raw/</code> 快照。被 Git 忽略。</div></div>
+      <div class="folder"><div class="folder-name">.local/</div><div class="folder-body"><strong>本机私密运行状态。</strong>包含小红书浏览器登录资料和防止重复运行的锁文件。不能复制、外传或提交。</div></div>
+      <div class="folder"><div class="folder-name">node_modules/</div><div class="folder-body"><strong>第三方工具箱。</strong><code>npm install</code> 自动下载，体积较大，不是团队手写代码，也不会提交。</div></div>
+    </div>
+  </section>
+
+  <section id="files" class="reveal"><div class="section-head"><div class="num">06</div><div><h2>源代码逐层说明</h2><p class="muted">点击每组可以展开。这里覆盖仓库内所有手写源代码文件。</p></div></div>
+    <details open><summary>src/xhs-probe/ — 小红书探针</summary><div class="file-list">
+      <div><code>cli.ts</code><br>总指挥：读取命令参数、打开浏览器、等待人工登录、搜索帖子、访问详情、收集响应并写出报告。</div>
+      <div><code>extract.ts</code><br>翻译员：从页面状态、JSON-LD 和接口响应中寻找字段，统一帖子与评论格式，并检查相关性和时间冲突。</div>
+      <div><code>sanitize.ts</code><br>安检员：遮盖 Cookie、Token、手机号、敏感查询参数和错误信息中的秘密。</div>
+      <div><code>page-signals.ts</code><br>路况识别：判断页面是否要求登录、验证码，或提示访问频繁。</div>
+      <div><code>url.ts</code><br>地址解析：从小红书链接中取得帖子 ID，并生成不带临时令牌的标准来源链接。</div>
+      <div><code>types.ts</code><br>数据字典：定义帖子、评论、采集错误和运行报告应该包含哪些字段。</div>
+    </div></details>
+    <details open><summary>src/db/ — 数据库公共底座与命令</summary><div class="file-list">
+      <div><code>config.ts</code><br>读取并严格校验 MySQL 地址、端口、账号、数据库、SSL 和连接池上限。</div>
+      <div><code>pool.ts</code><br>创建数据库连接池，并把每个连接的时间语义统一为 UTC。</div>
+      <div><code>errors.ts</code><br>把底层 MySQL 报错转换成安全、稳定的错误类型，避免泄露连接信息。</div>
+      <div><code>migrations.ts</code><br>发现 SQL 迁移、校验校验和、加数据库锁并依次执行，只允许向前升级。</div>
+      <div><code>health.ts</code><br><code>db:health</code> 命令入口，只读检查版本、SSL、时区和连接池。</div>
+      <div><code>migrate.ts</code><br><code>db:migrate</code> 命令入口，执行待应用的数据库迁移。</div>
+      <div><code>status.ts</code><br><code>db:status</code> 命令入口，只读显示迁移状态和业务表是否齐全。</div>
+      <div><code>integration.ts</code><br>真实数据库验收脚本：临时写入一组测试数据，检查保存、幂等、回滚、锁和游标，再清理自己的测试数据。</div>
+    </div></details>
+    <details><summary>src/db/persistence/ — 把采集结果可靠地保存下来</summary><div class="file-list">
+      <div><code>service.ts</code><br>业务编排层：先验证任务，再用事务一次保存一批帖子、评论、快照和品牌命中关系。</div>
+      <div><code>repository.ts</code><br>具体 SQL 操作：新增或更新帖子评论、写互动快照和脱敏原始字段。</div>
+      <div><code>task-repository.ts</code><br>采集任务的创建与状态变化，控制哪些品牌可以启动任务。</div>
+      <div><code>mapping.ts</code><br>把探针格式转换成数据库格式，并阻止关键字段缺失的数据入库。</div>
+      <div><code>redaction.ts</code><br>入库前再次脱敏并稳定序列化原始快照。</div>
+      <div><code>errors.ts</code><br>定义持久化层自己的安全错误。</div>
+      <div><code>types.ts</code><br>定义任务、批次、帖子、评论和返回结果的数据形状。</div>
+      <div><code>index.ts</code><br>统一出口，让其他模块从一个位置引用持久化能力。</div>
+    </div></details>
+    <details><summary>src/db/coordination/ — 多任务之间不要互相踩踏</summary><div class="file-list">
+      <div><code>locks.ts</code><br>品牌租约锁：同一时间只让一个合格任务采集同一品牌，并支持续租和释放。</div>
+      <div><code>cursors.ts</code><br>采集游标：记录采到哪里，只允许合法任务把进度向前推进。</div>
+      <div><code>types.ts</code><br>协调模块共用的数据类型、ID 比较和输入校验。</div>
+      <div><code>index.ts</code><br>协调能力的统一出口。</div>
+    </div></details>
+  </section>
+
+  <section id="run" class="reveal"><div class="section-head"><div class="num">07</div><div><h2>常用命令怎么理解</h2><p class="muted">在项目根目录的 PowerShell 中运行。真实数据库配置应只放在 <code>.env.local</code>。</p></div></div>
+    <table><thead><tr><th>命令</th><th>作用</th><th>会不会改数据</th></tr></thead><tbody>
+      <tr><td>npm install</td><td>按照 package-lock.json 安装第三方依赖</td><td>只生成 node_modules</td></tr>
+      <tr><td>npm run typecheck</td><td>检查 TypeScript 类型是否正确</td><td>不会</td></tr>
+      <tr><td>npm test</td><td>编译并运行自动化测试</td><td>只生成测试临时产物</td></tr>
+      <tr><td>npm run probe:xhs -- --keyword Leader</td><td>打开浏览器并执行一次低频小红书探针</td><td>写入本地 artifacts，不连接 MySQL</td></tr>
+      <tr><td>npm run db:health</td><td>确认 MySQL 能连接且版本、SSL、时区正确</td><td>只读</td></tr>
+      <tr><td>npm run db:status</td><td>查看迁移版本和表是否齐全</td><td>只读</td></tr>
+      <tr><td>npm run db:migrate</td><td>应用尚未执行的 SQL 迁移</td><td>会改变数据库结构</td></tr>
+      <tr><td>npm run db:integration</td><td>在真实数据库运行持久化验收</td><td>临时写入并清理测试数据</td></tr>
+    </tbody></table>
+  </section>
+
+  <section class="reveal"><div class="section-head"><div class="num">08</div><div><h2>小白最容易误解的四件事</h2></div></div>
+    <div class="grid"><article class="card"><h3>这还不是一个网站</h3><p>仓库里没有 React、Vue 或正式 HTML 前端，也没有 HTTP API 服务。当前主要是命令行工具和数据库模块。</p></article><article class="card"><h3>PRD 不等于成品</h3><p><code>tasks/</code> 写的是最终想要的系统；判断是否已经实现，要以 <code>src/</code> 和可运行命令为准。</p></article><article class="card"><h3>探针不等于正式采集器</h3><p>它受到 20 条搜索结果、3 篇详情和至少 2 秒间隔的硬限制，主要用于验证页面数据是否可取得。</p></article><article class="card"><h3>数据表是地基</h3><p>数据库已经为品牌、任务、帖子、评论、快照、游标和锁搭好结构，但模型分析相关表与业务页面仍未建设。</p></article></div>
+  </section>
+
+  <footer class="foot"><span>ReadTrace · Repository Field Guide</span><span>依据 2026-08-06 工作区实际文件生成</span></footer>
+</main>
+<script>
+  const observer=new IntersectionObserver(items=>items.forEach(item=>{if(item.isIntersecting)item.target.classList.add('show')}),{threshold:.08});
+  document.querySelectorAll('.reveal').forEach(node=>observer.observe(node));
+</script>
+</body>
+</html>

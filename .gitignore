@@ -9,6 +9,7 @@ test-results/
 .test-dist/
 coverage/
 dist/
+*.tsbuildinfo
 .test-dist/
 .DS_Store
 Thumbs.db

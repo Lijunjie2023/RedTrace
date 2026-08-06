@@ -1,0 +1,55 @@
+{
+  "topics": [
+    {
+      "id": "mock-topic-noise",
+      "name": "模拟主题：运行声音反馈",
+      "description": "模拟归因结果，仅用于界面和接口联调。",
+      "sentiment": "NEGATIVE",
+      "contentCount": 7,
+      "postCount": 3,
+      "commentCount": 4,
+      "userCount": 6,
+      "likedCount": 31,
+      "changeRatio": 0.25,
+      "evidenceCount": 2,
+      "analysisOrigin": "SIMULATED"
+    }
+  ],
+  "keywords": [
+    {
+      "keyword": "模拟关键词：运行声",
+      "topicIds": ["mock-topic-noise"],
+      "sentiment": "NEGATIVE",
+      "occurrenceCount": 9,
+      "postCount": 4,
+      "commentCount": 5,
+      "userCount": 7,
+      "likedCount": 38,
+      "changeRatio": 0.2
+    }
+  ],
+  "evidence": [
+    {
+      "contentType": "POST",
+      "contentId": "mock-post-001",
+      "evidenceOrigin": "SIMULATED",
+      "excerpt": "模拟证据：用于验证主题下钻，不代表真实用户陈述。",
+      "authorDisplayName": "模拟用户甲",
+      "publishedAt": "2026-08-02T03:00:00.000Z",
+      "likedCount": 12,
+      "sourceUrl": null,
+      "canOpenOriginal": false
+    },
+    {
+      "contentType": "COMMENT",
+      "contentId": "mock-comment-001",
+      "evidenceOrigin": "SIMULATED",
+      "excerpt": "模拟评论证据，不对应任何真实平台评论。",
+      "authorDisplayName": "模拟用户乙",
+      "publishedAt": "2026-08-02T03:20:00.000Z",
+      "likedCount": 4,
+      "sourceUrl": null,
+      "canOpenOriginal": false
+    }
+  ]
+}

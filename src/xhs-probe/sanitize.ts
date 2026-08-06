@@ -1,13 +1,43 @@
 import { createHash } from "node:crypto";
 
-const SECRET_KEY = /cookie|token|authorization|password|passwd|secret|session|phone|mobile|captcha|verify/i;
+const SECRET_KEYS = new Set([
+  "a1",
+  "xs",
+  "xt",
+  "cookie",
+  "token",
+  "authtoken",
+  "accesstoken",
+  "refreshtoken",
+  "idtoken",
+  "xsectoken",
+  "authorization",
+  "websession",
+  "sessionkey",
+  "clientsecret",
+  "apikey",
+  "password",
+  "passwd",
+  "secret",
+  "session",
+  "phone",
+  "mobile",
+  "captcha",
+  "verify"
+]);
 const PHONE = /(?<![A-Za-z0-9])(?:\+?86[- ]?)?1[3-9]\d{9}(?![A-Za-z0-9])/g;
-const SECRET_QUERY = /([?&](?:xsec_token|token|access_token|session|cookie)=)[^&#\s]+/gi;
+const SECRET_QUERY = /([?&](?:a1|x-s|x-t|xsec[_-]?token|token|auth[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|authorization|web[_-]?session|session(?:[_-]?key)?|client[_-]?secret|api[_-]?key|cookie)=)[^&#\s]*/gi;
+const SECRET_HEADER = /(\b(?:cookie|authorization|x-s|x-t)\s*:\s*)[^\r\n]*/gi;
+
+function isSecretKey(key: string): boolean {
+  return SECRET_KEYS.has(key.replace(/[_-]/g, "").toLowerCase());
+}
 
 export function sanitizeText(value: string): string {
   return value
     .replace(PHONE, "[redacted-phone]")
-    .replace(SECRET_QUERY, "$1[redacted]");
+    .replace(SECRET_QUERY, "$1[redacted]")
+    .replace(SECRET_HEADER, "$1[redacted]");
 }
 
 export function sanitizeUnknown(value: unknown, seen = new WeakSet<object>()): unknown {
@@ -19,7 +49,7 @@ export function sanitizeUnknown(value: unknown, seen = new WeakSet<object>()): u
 
   const result: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
-    if (SECRET_KEY.test(key)) continue;
+    if (isSecretKey(key)) continue;
     result[key] = sanitizeUnknown(item, seen);
   }
   return result;

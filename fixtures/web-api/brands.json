@@ -1,0 +1,17 @@
+[
+  {
+    "id": "mock-brand-leader",
+    "name": "Leader",
+    "status": "ENABLED",
+    "searchTerms": [
+      { "id": "mock-term-leader", "type": "ALIAS", "value": "Leader", "status": "ENABLED" },
+      { "id": "mock-term-leader-fridge", "type": "MODEL", "value": "Leader冰箱", "status": "ENABLED" },
+      { "id": "mock-term-exclude", "type": "EXCLUDE", "value": "招聘", "status": "ENABLED" }
+    ],
+    "lastSuccessfulCollectionAt": "2026-08-06T00:30:00.000Z",
+    "latestTaskStatus": "SUCCESS",
+    "version": 1,
+    "createdAt": "2026-08-01T00:00:00.000Z",
+    "updatedAt": "2026-08-06T00:30:00.000Z"
+  }
+]

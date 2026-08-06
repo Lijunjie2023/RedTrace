@@ -3,13 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "db:health": "tsx src/db/health.ts",
+    "db:import-probe": "tsx src/db/import-probe.ts",
+    "db:integration": "tsx src/db/integration.ts",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:status": "tsx src/db/status.ts",
+    "analyze:content": "tsx src/analysis/cli.ts",
+    "dev": "npm run dev --workspaces --if-present",
     "probe:xhs": "tsx src/xhs-probe/cli.ts",
-    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/xhs-probe.test.js",
-    "typecheck": "tsc --noEmit"
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present"
   },
   "dependencies": {
-    "playwright": "^1.54.2"
+    "dotenv": "^17.2.1",
+    "mysql2": "^3.14.3",
+    "playwright": "^1.54.2",
+    "zod": "^4.1.5"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",

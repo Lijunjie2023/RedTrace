@@ -1,0 +1,32 @@
+[
+  {
+    "id": "mock-category-refrigerator",
+    "classificationType": "CATEGORY",
+    "code": "mock_refrigerator",
+    "displayName": "冰箱（模拟）",
+    "description": "模拟品类配置。",
+    "isEnabled": true,
+    "sortOrder": 10,
+    "version": 1
+  },
+  {
+    "id": "mock-problem-noise",
+    "classificationType": "PROBLEM_TYPE",
+    "code": "mock_noise",
+    "displayName": "运行噪音（模拟）",
+    "description": "模拟问题类型。",
+    "isEnabled": true,
+    "sortOrder": 10,
+    "version": 1
+  },
+  {
+    "id": "mock-topic-noise",
+    "classificationType": "TOPIC",
+    "code": "mock_topic_noise",
+    "displayName": "运行声音反馈（模拟）",
+    "description": "模拟原因主题。",
+    "isEnabled": true,
+    "sortOrder": 10,
+    "version": 1
+  }
+]
