@@ -1,0 +1,22 @@
+{
+  "name": "readtrace-xhs-probe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe:xhs": "tsx src/xhs-probe/cli.ts",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/xhs-probe.test.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "playwright": "^1.54.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
