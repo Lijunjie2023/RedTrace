@@ -8,11 +8,15 @@ import { enumLabel, formatDateTime, formatNumber } from "../utils/format";
 
 export function ContentPage(): ReactNode {
   const [search, setSearch] = useSearchParams();
-  const contentType = search.get("contentType") === "COMMENT" ? "COMMENT" : "POST";
+  const contentType: "POST" | "COMMENT" = search.get("contentType") === "COMMENT" ? "COMMENT" : "POST";
   const contentLabel = contentType === "COMMENT" ? "评论" : "帖子";
   const requestSearch = useMemo(() => {
     const value = new URLSearchParams(search);
     value.set("contentType", contentType);
+    if (contentType === "COMMENT") {
+      value.delete("from");
+      value.delete("to");
+    }
     if (!value.has("page")) value.set("page", "1");
     if (!value.has("pageSize")) value.set("pageSize", "20");
     return value;
@@ -22,20 +26,29 @@ export function ContentPage(): ReactNode {
   const [selected, setSelected] = useState<ContentSummary | null>(null);
 
   useEffect(() => {
-    if (search.get("contentType") === contentType) return;
+    const commentHasDate = contentType === "COMMENT" && (search.has("from") || search.has("to"));
+    if (search.get("contentType") === contentType && !commentHasDate) return;
     const next = new URLSearchParams(search);
     next.set("contentType", contentType);
+    if (contentType === "COMMENT") {
+      next.delete("from");
+      next.delete("to");
+    }
     setSearch(next, { replace: true });
   }, [contentType, search, setSearch]);
 
   useEffect(() => {
-    if (resource.data?.items.length && !resource.data.items.some((item) => item.id === selected?.id)) setSelected(resource.data.items[0]);
+    if (resource.data?.items.length && !resource.data.items.some((item) => item.id === selected?.id && item.contentType === selected.contentType)) setSelected(resource.data.items[0]);
     if (resource.data?.items.length === 0) setSelected(null);
   }, [resource.data, selected?.id]);
 
   const setType = (value: "POST" | "COMMENT") => {
     const next = new URLSearchParams(search);
     next.set("contentType", value);
+    if (value === "COMMENT") {
+      next.delete("from");
+      next.delete("to");
+    }
     next.set("page", "1");
     setSearch(next);
   };
@@ -52,8 +65,8 @@ export function ContentPage(): ReactNode {
   return (
     <>
       <PageHeader eyebrow="证据库" title={`${contentLabel}库`} description={`${contentLabel}筛选条件写入链接，刷新和返回后仍然保留。`} action={<ExportButton filters={requestSearch} />} />
-      <FilterBar search={search} setSearch={setSearch} />
-      <div className="content-toolbar"><div className="segmented" aria-label="内容类型"><button className={contentType === "POST" ? "is-active" : ""} type="button" onClick={() => setType("POST")}>帖子</button><button className={contentType === "COMMENT" ? "is-active" : ""} type="button" onClick={() => setType("COMMENT")}>评论</button></div><span>共{resource.data.pagination.totalItems}条{contentLabel}</span></div>
+      <FilterBar search={search} setSearch={setSearch} showDate={contentType !== "COMMENT"} />
+      <div className="content-toolbar"><div><div className="segmented" aria-label="内容类型"><button className={contentType === "POST" ? "is-active" : ""} type="button" onClick={() => setType("POST")}>帖子</button><button className={contentType === "COMMENT" ? "is-active" : ""} type="button" onClick={() => setType("COMMENT")}>评论</button></div>{contentType === "COMMENT" ? <small>评论没有可验证的发布时间，日期筛选不适用。</small> : null}</div><span>共{resource.data.pagination.totalItems}条{contentLabel}</span></div>
       {resource.error ? <ErrorNotice error={resource.error} retry={resource.retry} compact /> : null}
       {resource.data.items.length === 0 ? <div className="empty-state"><span aria-hidden="true">⌁</span><h3>当前筛选没有{contentLabel}</h3><p>已保留内容类型，可以调整其他条件或清除筛选。</p><button className="button button--quiet" type="button" onClick={() => setSearch(new URLSearchParams({ contentType, page: "1" }))}>清除其他筛选</button></div> : (
         <div className={`content-layout ${resource.refreshing ? "is-refreshing" : ""}`}>

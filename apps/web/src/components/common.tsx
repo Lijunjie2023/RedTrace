@@ -63,14 +63,14 @@ export function LoadingState({ label = "正在读取数据" }: { label?: string 
 
 export function EmptyState({ kind, onClear }: { kind: "not-collected" | "filtered" | "analysis"; onClear?: () => void }): ReactNode {
   const copy = {
-    "not-collected": ["尚未采集", "品牌启用后会进入每小时采集流程，首次成功前不会显示为零舆情。"],
+    "not-collected": ["尚未完成首次采集", "完成监控设置并成功采集后，这里会显示真实舆情数据。"],
     filtered: ["当前筛选没有结果", "已保留筛选条件，可以调整条件或清除筛选。"],
     analysis: ["暂无可验证的分析", "原始内容仍可查看，原因主题需要等待有效分析和原始证据。"]
   }[kind];
   return (
     <div className="empty-state">
       <Icon name="database" /><h3>{copy[0]}</h3><p>{copy[1]}</p>
-      {kind === "not-collected" ? <Link className="text-link" to="/brands">前往品牌监控</Link> : null}
+      {kind === "not-collected" ? <Link className="text-link" to="/brands">前往监控设置</Link> : null}
       {onClear ? <button className="button button--quiet" type="button" onClick={onClear}>清除筛选</button> : null}
     </div>
   );
@@ -111,10 +111,12 @@ export function ExportButton({ filters }: { filters: URLSearchParams }): ReactNo
   return <div className="export-unavailable"><button className="button button--primary" type="button" disabled aria-describedby="export-unavailable-note">{label}</button><small id="export-unavailable-note">当前版本不会生成空文件或不完整文件。</small></div>;
 }
 
-export function FilterBar({ search, setSearch, showSentiment = true }: {
+export function FilterBar({ search, setSearch, showSentiment = true, showCategory = false, showDate = true }: {
   search: URLSearchParams;
   setSearch: (next: URLSearchParams) => void;
   showSentiment?: boolean;
+  showCategory?: boolean;
+  showDate?: boolean;
 }): ReactNode {
   const brandLoader = useMemo(() => () => api.getBrands(), []);
   const brands = useResource(brandLoader, []);
@@ -129,9 +131,9 @@ export function FilterBar({ search, setSearch, showSentiment = true }: {
   const selectedBrandKnown = brands.data?.items.some((brand) => brand.id === selectedBrandId) ?? false;
   return (
     <div className="filter-bar" aria-label="数据筛选">
-      <label><span>开始时间</span><input type="date" value={search.get("from")?.slice(0, 10) ?? ""} onChange={(event) => update("from", event.target.value ? `${event.target.value}T00:00:00+08:00` : "")} /></label>
-      <label><span>结束时间</span><input type="date" value={search.get("to")?.slice(0, 10) ?? ""} onChange={(event) => update("to", event.target.value ? `${event.target.value}T23:59:59+08:00` : "")} /></label>
+      {showDate ? <><label><span>开始时间</span><input type="date" value={search.get("from")?.slice(0, 10) ?? ""} onChange={(event) => update("from", event.target.value ? `${event.target.value}T00:00:00+08:00` : "")} /></label><label><span>结束时间</span><input type="date" value={search.get("to")?.slice(0, 10) ?? ""} onChange={(event) => update("to", event.target.value ? `${event.target.value}T23:59:59+08:00` : "")} /></label></> : null}
       <label><span>监控品牌</span><select value={selectedBrandId} disabled={brands.loading || Boolean(brands.error)} onChange={(event) => update("brandIds", event.target.value)}><option value="">{brands.loading ? "正在读取品牌" : brands.error ? "品牌列表暂时不可用" : brands.data?.items.length ? "全部品牌" : "暂无监控品牌"}</option>{selectedBrandId && !selectedBrandKnown ? <option value={selectedBrandId}>已选品牌</option> : null}{brands.data?.items.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label>
+      {showCategory ? <label><span>产品品类</span><select disabled aria-describedby="overview-category-note"><option>全部品类</option></select><small id="overview-category-note">品类筛选暂不可用</small></label> : null}
       {showSentiment ? <label><span>情感倾向</span><select value={search.get("sentiments") ?? search.get("sentiment") ?? ""} onChange={(event) => update("sentiments", event.target.value)}><option value="">全部</option><option value="NEGATIVE">负向</option><option value="NEUTRAL">中性</option><option value="POSITIVE">正向</option></select></label> : null}
       {search.size > 0 ? <button className="button button--quiet" type="button" onClick={clear}>清除筛选</button> : null}
     </div>
