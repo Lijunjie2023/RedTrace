@@ -134,6 +134,17 @@ export interface ProbeImportSummary {
   failuresByType: Partial<Record<PersistenceErrorType, number>>;
 }
 
+export function selectImportablePosts<
+  T extends { noteId: string; relevance: boolean | "related" | "uncertain"; description: string | null },
+  C
+>(posts: T[], commentsByPost: Map<string, C[]>): T[] {
+  return posts.filter((post) =>
+    (post.relevance === true || post.relevance === "related")
+    && Boolean(post.description?.trim())
+    && (commentsByPost.get(post.noteId)?.length ?? 0) > 0
+  );
+}
+
 function optionValue(args: string[], index: number, name: string): string | undefined {
   const current = args[index];
   if (current?.startsWith(`${name}=`)) return current.slice(name.length + 1);
@@ -288,9 +299,7 @@ export async function importProbeRun(options: ProbeImportOptions): Promise<Probe
     ownerComments.push(comment);
     commentsByPost.set(comment.noteId, ownerComments);
   }
-  const selectedPosts = artifacts.posts.filter((post) =>
-    (post.relevance === true || post.relevance === "related") && Boolean(post.description?.trim())
-  );
+  const selectedPosts = selectImportablePosts(artifacts.posts, commentsByPost);
 
   let context: Awaited<ReturnType<typeof createDatabaseContext>> | undefined;
   try {

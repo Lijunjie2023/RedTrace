@@ -17,6 +17,7 @@
     "analyze:content": "tsx src/analysis/cli.ts",
     "dev": "npm run dev --workspaces --if-present",
     "probe:xhs": "tsx src/xhs-probe/cli.ts",
+    "probe:justoneapi": "tsx src/justoneapi-probe/cli.ts",
     "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present"
   },

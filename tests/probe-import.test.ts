@@ -7,8 +7,18 @@ import {
   ProbeImportError,
   loadProbeArtifacts,
   parseProbeImportOptions,
-  resolveProbeRunDirectory
+  resolveProbeRunDirectory,
+  selectImportablePosts
 } from "../src/db/import-probe.js";
+
+test("没有评论的帖子不会进入数据库导入批次", () => {
+  const posts = [
+    { noteId: "with-comment", relevance: "related" as const, description: "正文" },
+    { noteId: "without-comment", relevance: "related" as const, description: "正文" }
+  ];
+  const commentsByPost = new Map([["with-comment", [{ commentId: "c1" }]]]);
+  assert.deepEqual(selectImportablePosts(posts, commentsByPost).map((post) => post.noteId), ["with-comment"]);
+});
 
 test("探针导入参数必须显式提供运行目录和品牌", () => {
   assert.deepEqual(
