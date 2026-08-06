@@ -2,13 +2,15 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useResponseMeta } from "../api/meta-store";
 import { useAuth } from "../auth";
+import { Icon, type IconName } from "../components/icons";
+import { formatDateTime } from "../utils/format";
 
 const navigation = [
-  ["/overview", "概览", "01"],
-  ["/insights", "原因洞察", "02"],
-  ["/content", "内容库", "03"],
-  ["/brands", "品牌监控", "04"],
-  ["/data-status", "数据状态", "05"]
+  ["/overview", "概览", "overview"],
+  ["/insights", "原因洞察", "insights"],
+  ["/content", "内容库", "content"],
+  ["/brands", "品牌监控", "brands"],
+  ["/data-status", "数据状态", "status"]
 ] as const;
 
 const pageNames: Record<string, string> = {
@@ -55,13 +57,14 @@ export function AppShell(): ReactNode {
     <UnsavedChangesContext.Provider value={guardValue}>
     <div className={`app-shell ${meta?.dataMode === "MOCK" ? "has-simulation" : ""}`}>
       <header className="topbar">
-        <NavLink className="brandmark" to="/overview"><span>RT</span><strong>ReadTrace</strong></NavLink>
-        <div className="topbar__meta"><span>数据模式：{meta?.dataMode === "MOCK" ? "模拟" : meta?.dataMode === "LIVE" ? "正式" : "读取中"}</span><button className="button button--quiet" type="button" onClick={() => void logout()}>安全退出</button></div>
+        <div className="topbar__context"><span>小红书舆情监测</span><strong>{pageName}</strong></div>
+        <div className="topbar__meta"><span>数据生成于 {meta ? formatDateTime(meta.generatedAt) : "读取中"}</span><span className="mode-indicator">{meta?.dataMode === "MOCK" ? "模拟模式" : meta?.dataMode === "LIVE" ? "正式数据" : "连接中"}</span><button className="button button--quiet" type="button" onClick={() => void logout()}><Icon name="logout" />安全退出</button></div>
       </header>
-      {meta?.dataMode === "MOCK" ? <div className="simulation-banner" role="status"><span aria-hidden="true">⚗</span><strong>当前为模拟模式</strong><span>页面数据仅用于界面验收，不代表真实舆情。</span></div> : null}
+      {meta?.dataMode === "MOCK" ? <div className="simulation-banner" role="status"><Icon name="warning" /><strong>当前为模拟模式</strong><span>页面数据仅用于界面验收，不代表真实舆情。</span></div> : null}
       <aside className="sidebar" aria-label="主导航">
-        <nav>{navigation.map(([to, label, index]) => <NavLink key={to} to={to}><span>{index}</span><b>{label}</b></NavLink>)}</nav>
-        <div className="sidebar__note"><span>数据来源</span><strong>小红书</strong><small>最后状态以页面提示为准</small></div>
+        <NavLink className="brandmark" to="/overview"><span><b>R</b>T</span><div><strong><b>Red</b>Trace</strong><small>小红书舆情监测系统</small></div></NavLink>
+        <nav>{navigation.map(([to, label, icon]) => <NavLink key={to} to={to} title={label}><Icon name={icon as IconName} /><b>{label}</b></NavLink>)}</nav>
+        <div className="sidebar__note"><Icon name="database" /><div><span>数据来源</span><strong>小红书</strong><small>采集状态以数据状态页为准</small></div></div>
       </aside>
       <main className="main-content"><Outlet /></main>
     </div>

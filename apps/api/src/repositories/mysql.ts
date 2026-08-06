@@ -13,6 +13,11 @@ import { RepositoryError, dataNotReady, notImplemented } from "./types.js";
 
 interface CountRow extends RowDataPacket { total: number }
 
+interface OverviewScope {
+  cte: string;
+  params: unknown[];
+}
+
 function iso(value: Date | string | null): string | null {
   return value === null ? null : new Date(value).toISOString();
 }
@@ -175,6 +180,99 @@ function appendEffectiveAnalysisFilters(
   if (options.topicIds) addMultiValue(options.topicIds, "$.topicIds", "analysis_topics");
 }
 
+function overviewScope(options: ListOptions): OverviewScope {
+  const postClauses: string[] = [];
+  const postParams: unknown[] = [];
+  const appendScope = (alias: "p", clauses: string[], params: unknown[]): void => {
+    if (options.from) { clauses.push(`${alias}.published_at >= ?`); params.push(options.from); }
+    if (options.to) { clauses.push(`${alias}.published_at <= ?`); params.push(options.to); }
+    if (options.brandIds) {
+      clauses.push(`EXISTS (
+        SELECT 1 FROM brand_post_matches filter_bpm
+        WHERE filter_bpm.post_id = ${alias}.id
+          AND filter_bpm.brand_id IN (${options.brandIds.map(() => "?").join(",")})
+      )`);
+      params.push(...options.brandIds);
+    }
+  };
+  appendScope("p", postClauses, postParams);
+  const postWhere = postClauses.length ? `WHERE ${postClauses.join(" AND ")}` : "";
+  const correctedAsciiValue = (path: string): string =>
+    `CAST(JSON_UNQUOTE(JSON_EXTRACT(mc.patch_json, '${path}')) AS CHAR CHARACTER SET ascii) COLLATE ascii_bin`;
+  const effectiveAsciiValue = (path: string, column: string): string =>
+    `CASE WHEN mc.deleted_at IS NULL AND JSON_CONTAINS_PATH(mc.patch_json, 'one', '${path}')
+      THEN NULLIF(${correctedAsciiValue(path)}, _ascii'null' COLLATE ascii_bin)
+      ELSE CAST(la.${column} AS CHAR CHARACTER SET ascii) COLLATE ascii_bin END`;
+  const correctedCategoryId = correctedAsciiValue("$.categoryId");
+  const effectiveCategoryId = `CASE
+    WHEN mc.deleted_at IS NULL AND JSON_CONTAINS_PATH(mc.patch_json, 'one', '$.categoryId') THEN
+      CASE WHEN ${correctedCategoryId} REGEXP _ascii'^[1-9][0-9]*$' COLLATE ascii_bin
+                  AND (CHAR_LENGTH(${correctedCategoryId}) < 20
+                    OR (CHAR_LENGTH(${correctedCategoryId}) = 20
+                      AND ${correctedCategoryId} <= _ascii'18446744073709551615' COLLATE ascii_bin))
+        THEN CAST(${correctedCategoryId} AS UNSIGNED)
+        ELSE NULL
+      END
+    ELSE la.category_id
+  END`;
+
+  return {
+    cte: `WITH scoped_posts AS (
+      SELECT p.id, p.published_at, p.last_collected_at
+      FROM posts p
+      ${postWhere}
+    ), scoped_comments AS (
+      SELECT c.id, c.post_id, p.published_at AS bucket_at, c.last_collected_at
+      FROM comments c
+      INNER JOIN scoped_posts p ON p.id = c.post_id
+    ), analysis_candidates AS (
+      SELECT ar.*
+      FROM analysis_records ar
+      INNER JOIN scoped_posts p ON p.id = ar.post_id
+      WHERE ar.status = 'success' AND ar.content_type = _ascii'post' COLLATE ascii_bin
+      UNION ALL
+      SELECT ar.*
+      FROM analysis_records ar
+      INNER JOIN scoped_comments c ON c.id = ar.comment_id
+      WHERE ar.status = 'success' AND ar.content_type = _ascii'comment' COLLATE ascii_bin
+    ), latest_analysis AS (
+      SELECT ranked.* FROM (
+        SELECT ar.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY ar.content_type, COALESCE(ar.post_id, ar.comment_id)
+                 ORDER BY ar.completed_at DESC, ar.id DESC
+               ) AS analysis_rank
+        FROM analysis_candidates ar
+      ) ranked
+      WHERE ranked.analysis_rank = 1
+    ), effective_content AS (
+      SELECT CAST(_ascii'POST' AS CHAR CHARACTER SET ascii) COLLATE ascii_bin AS content_type,
+             p.id AS content_id, p.id AS post_id,
+             p.published_at AS bucket_at, p.last_collected_at,
+             ${effectiveAsciiValue("$.sentiment", "sentiment")} AS sentiment,
+             ${effectiveAsciiValue("$.riskLevel", "risk_level")} AS risk_level,
+             ${effectiveCategoryId} AS category_id,
+             la.id AS analysis_record_id,
+             CASE WHEN mc.deleted_at IS NULL THEN mc.patch_json ELSE NULL END AS patch_json
+      FROM scoped_posts p
+      LEFT JOIN latest_analysis la ON la.content_type = _ascii'post' COLLATE ascii_bin AND la.post_id = p.id
+      LEFT JOIN manual_corrections mc ON mc.post_id = p.id
+      UNION ALL
+      SELECT CAST(_ascii'COMMENT' AS CHAR CHARACTER SET ascii) COLLATE ascii_bin AS content_type,
+             c.id AS content_id, c.post_id, c.bucket_at, c.last_collected_at,
+             ${effectiveAsciiValue("$.sentiment", "sentiment")} AS sentiment,
+             ${effectiveAsciiValue("$.riskLevel", "risk_level")} AS risk_level,
+             ${effectiveCategoryId} AS category_id,
+             la.id AS analysis_record_id,
+             CASE WHEN mc.deleted_at IS NULL THEN mc.patch_json ELSE NULL END AS patch_json
+      FROM scoped_comments c
+      LEFT JOIN latest_analysis la ON la.content_type = _ascii'comment' COLLATE ascii_bin AND la.comment_id = c.id
+      LEFT JOIN manual_corrections mc ON mc.comment_id = c.id
+    )`,
+    params: postParams
+  };
+}
+
 export class MysqlRepository implements DataRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -182,8 +280,220 @@ export class MysqlRepository implements DataRepository {
     await this.pool.end();
   }
 
-  async getOverview(_options: ListOptions): Promise<OverviewData> {
-    dataNotReady();
+  async getOverview(options: ListOptions): Promise<OverviewData> {
+    const brandClause = options.brandIds
+      ? `AND brand_id IN (${options.brandIds.map(() => "?").join(",")})`
+      : "";
+    const healthParams = options.brandIds ?? [];
+    const [lastSuccessfulResult, latestTerminalResult] = await Promise.all([
+      this.pool.query<RowDataPacket[]>(
+        `SELECT finished_at
+         FROM collection_tasks
+         WHERE status IN ('success', 'partial_success') ${brandClause}
+         ORDER BY finished_at DESC, id DESC
+         LIMIT 1`,
+        healthParams
+      ),
+      this.pool.query<RowDataPacket[]>(
+        `SELECT status
+         FROM collection_tasks
+         WHERE status IN ('success', 'partial_success', 'failed') ${brandClause}
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+        healthParams
+      )
+    ]);
+    const lastSuccessfulCollectionAt = iso(lastSuccessfulResult[0][0]?.finished_at ?? null);
+    if (lastSuccessfulCollectionAt === null) {
+      return {
+        metrics: { postCount: null, commentCount: null, negativeCount: null, negativeRatio: null },
+        sentimentTrend: [], brandRanking: [], categoryRanking: [], problemTypeRanking: [], risingTopics: [],
+        highRiskContents: [], collectionHealth: "NOT_COLLECTED", lastSuccessfulCollectionAt: null
+      };
+    }
+
+    const latestTerminalStatus = latestTerminalResult[0][0]?.status;
+    const collectionHealth: OverviewData["collectionHealth"] = latestTerminalStatus === "failed"
+      ? "FAILED"
+      : latestTerminalStatus === "partial_success" ? "PARTIAL" : "HEALTHY";
+    const scope = overviewScope(options);
+    const withScope = (query: string): string => `${scope.cte}\n${query}`;
+    const classificationMembership = (
+      classificationType: "problem_type" | "topic",
+      patchPath: "$.problemTypeIds" | "$.topicIds",
+      relationTable: "analysis_problem_types" | "analysis_topics"
+    ): string => `ci.classification_type = '${classificationType}' AND (
+      (JSON_CONTAINS_PATH(ec.patch_json, 'one', '${patchPath}')
+        AND JSON_CONTAINS(JSON_EXTRACT(ec.patch_json, '${patchPath}'), JSON_QUOTE(CAST(ci.id AS CHAR))))
+      OR
+      (NOT JSON_CONTAINS_PATH(COALESCE(ec.patch_json, JSON_OBJECT()), 'one', '${patchPath}')
+        AND EXISTS (
+          SELECT 1 FROM ${relationTable} relation
+          WHERE relation.analysis_record_id = ec.analysis_record_id
+            AND relation.classification_item_id = ci.id
+        ))
+    )`;
+    const brandFilter = options.brandIds
+      ? `AND b.id IN (${options.brandIds.map(() => "?").join(",")})`
+      : "";
+    const brandParams = [...scope.params, ...(options.brandIds ?? [])];
+    const [metricsResult, trendResult] = await Promise.all([
+      this.pool.query<RowDataPacket[]>(withScope(
+        `SELECT SUM(content_type = _ascii'POST' COLLATE ascii_bin) AS post_count,
+                SUM(content_type = _ascii'COMMENT' COLLATE ascii_bin) AS comment_count,
+                SUM(LOWER(COALESCE(sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin) AS negative_count
+         FROM effective_content`
+      ), scope.params),
+      this.pool.query<RowDataPacket[]>(withScope(
+        `SELECT DATE_FORMAT(bucket_at, '%Y-%m-%d') AS bucket,
+                SUM(LOWER(COALESCE(sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'positive' COLLATE ascii_bin) AS positive,
+                SUM(LOWER(COALESCE(sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'neutral' COLLATE ascii_bin) AS neutral,
+                SUM(LOWER(COALESCE(sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin) AS negative,
+                SUM(sentiment IS NULL OR LOWER(sentiment) = _ascii'unknown' COLLATE ascii_bin) AS unknown_count
+         FROM effective_content
+         WHERE bucket_at IS NOT NULL
+         GROUP BY DATE_FORMAT(bucket_at, '%Y-%m-%d')
+         ORDER BY bucket`
+      ), scope.params)
+    ]);
+    const [brandResult, categoryResult] = await Promise.all([
+      this.pool.query<RowDataPacket[]>(withScope(
+        `, matched_brands AS (
+           SELECT DISTINCT bpm.brand_id, bpm.post_id
+           FROM brand_post_matches bpm
+           INNER JOIN scoped_posts p ON p.id = bpm.post_id
+         )
+         SELECT b.id AS brand_id, b.brand_name,
+                COUNT(*) AS content_count,
+                SUM(LOWER(COALESCE(ec.sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin) AS negative_count
+         FROM effective_content ec
+         INNER JOIN matched_brands mb ON mb.post_id = ec.post_id
+         INNER JOIN brands b ON b.id = mb.brand_id
+         WHERE 1 = 1 ${brandFilter}
+         GROUP BY b.id, b.brand_name
+         ORDER BY negative_count DESC, content_count DESC, b.id
+         LIMIT 10`
+      ), brandParams),
+      this.pool.query<RowDataPacket[]>(withScope(
+        `SELECT ci.id AS category_id, ci.display_name AS category_name, COUNT(*) AS content_count
+         FROM effective_content ec
+         INNER JOIN classification_items ci ON ci.id = ec.category_id AND ci.classification_type = 'category'
+         GROUP BY ci.id, ci.display_name
+         ORDER BY content_count DESC, ci.sort_order, ci.id
+         LIMIT 10`
+      ), scope.params)
+    ]);
+    const [problemTypeResult, topicResult] = await Promise.all([
+      this.pool.query<RowDataPacket[]>(withScope(
+        `SELECT ci.id AS problem_type_id, ci.display_name AS problem_type_name, COUNT(*) AS content_count
+         FROM effective_content ec
+         INNER JOIN classification_items ci ON ${classificationMembership("problem_type", "$.problemTypeIds", "analysis_problem_types")}
+         GROUP BY ci.id, ci.display_name
+         ORDER BY content_count DESC, ci.sort_order, ci.id
+         LIMIT 10`
+      ), scope.params),
+      this.pool.query<RowDataPacket[]>(withScope(
+        `SELECT ci.id AS topic_id, ci.display_name AS topic_name, COUNT(*) AS evidence_count
+         FROM effective_content ec
+         INNER JOIN classification_items ci ON ${classificationMembership("topic", "$.topicIds", "analysis_topics")}
+         GROUP BY ci.id, ci.display_name
+         ORDER BY evidence_count DESC, ci.sort_order, ci.id
+         LIMIT 10`
+      ), scope.params)
+    ]);
+    const highRiskResult = await this.pool.query<RowDataPacket[]>(withScope(
+      `SELECT content_type, content_id
+       FROM effective_content
+       WHERE LOWER(COALESCE(risk_level, _ascii'normal' COLLATE ascii_bin)) = _ascii'high_risk' COLLATE ascii_bin
+       ORDER BY last_collected_at DESC, content_type, content_id DESC
+       LIMIT 8`
+    ), scope.params);
+
+    const metricsRow = metricsResult[0][0];
+    const postCount = Number(metricsRow?.post_count ?? 0);
+    const commentCount = Number(metricsRow?.comment_count ?? 0);
+    const negativeCount = Number(metricsRow?.negative_count ?? 0);
+    const totalContentCount = postCount + commentCount;
+    const highRiskContents = await this.loadOverviewContents(highRiskResult[0]);
+
+    return {
+      metrics: {
+        postCount,
+        commentCount,
+        negativeCount,
+        negativeRatio: totalContentCount === 0 ? 0 : negativeCount / totalContentCount
+      },
+      sentimentTrend: trendResult[0].map((row) => ({
+        bucket: String(row.bucket), positive: Number(row.positive), neutral: Number(row.neutral),
+        negative: Number(row.negative), unknown: Number(row.unknown_count)
+      })),
+      brandRanking: brandResult[0].map((row) => ({
+        brandId: String(row.brand_id), brandName: String(row.brand_name),
+        contentCount: Number(row.content_count), negativeCount: Number(row.negative_count)
+      })),
+      categoryRanking: categoryResult[0].map((row) => ({
+        categoryId: String(row.category_id), categoryName: String(row.category_name), contentCount: Number(row.content_count)
+      })),
+      problemTypeRanking: problemTypeResult[0].map((row) => ({
+        problemTypeId: String(row.problem_type_id), problemTypeName: String(row.problem_type_name),
+        contentCount: Number(row.content_count)
+      })),
+      risingTopics: topicResult[0].map((row) => ({
+        topicId: String(row.topic_id), topicName: String(row.topic_name), changeRatio: null,
+        evidenceCount: Number(row.evidence_count)
+      })),
+      highRiskContents,
+      collectionHealth,
+      lastSuccessfulCollectionAt
+    };
+  }
+
+  private async loadOverviewContents(targets: RowDataPacket[]): Promise<ContentSummary[]> {
+    if (targets.length === 0) return [];
+    const postIds = targets.filter((row) => row.content_type === "POST").map((row) => String(row.content_id));
+    const commentIds = targets.filter((row) => row.content_type === "COMMENT").map((row) => String(row.content_id));
+    const summaries = new Map<string, ContentSummary>();
+    if (postIds.length) {
+      const placeholders = postIds.map(() => "?").join(",");
+      const [rows] = await this.pool.query<RowDataPacket[]>(
+        `SELECT p.id, p.source_url, p.title, p.description, p.author_nickname, p.published_at,
+                p.first_collected_at, p.last_collected_at,
+                s.liked_count, s.collected_count, s.comment_count,
+                GROUP_CONCAT(DISTINCT bpm.brand_id ORDER BY bpm.brand_id) AS brand_ids
+         FROM posts p
+         LEFT JOIN post_interaction_snapshots s ON s.id = (
+           SELECT ps.id FROM post_interaction_snapshots ps WHERE ps.post_id = p.id ORDER BY ps.observed_at DESC, ps.id DESC LIMIT 1
+         )
+         LEFT JOIN brand_post_matches bpm ON bpm.post_id = p.id
+         WHERE p.id IN (${placeholders})
+         GROUP BY p.id, p.source_url, p.title, p.description, p.author_nickname, p.published_at,
+                  p.first_collected_at, p.last_collected_at, s.liked_count, s.collected_count, s.comment_count`,
+        postIds
+      );
+      const analyses = await this.loadResolvedAnalyses("POST", postIds);
+      for (const row of rows) summaries.set(`POST:${row.id}`, this.mapPost(row, analyses.get(String(row.id))?.effective));
+    }
+    if (commentIds.length) {
+      const placeholders = commentIds.map(() => "?").join(",");
+      const [rows] = await this.pool.query<RowDataPacket[]>(
+        `SELECT c.id, c.post_id, c.content, c.author_nickname, c.published_text,
+                c.first_collected_at, c.last_collected_at, p.source_url,
+                s.liked_count, GROUP_CONCAT(DISTINCT bpm.brand_id ORDER BY bpm.brand_id) AS brand_ids
+         FROM comments c
+         INNER JOIN posts p ON p.id = c.post_id
+         LEFT JOIN comment_interaction_snapshots s ON s.id = (
+           SELECT cs.id FROM comment_interaction_snapshots cs WHERE cs.comment_id = c.id ORDER BY cs.observed_at DESC, cs.id DESC LIMIT 1
+         )
+         LEFT JOIN brand_post_matches bpm ON bpm.post_id = p.id
+         WHERE c.id IN (${placeholders})
+         GROUP BY c.id, c.post_id, c.content, c.author_nickname, c.published_text,
+                  c.first_collected_at, c.last_collected_at, p.source_url, s.liked_count`,
+        commentIds
+      );
+      const analyses = await this.loadResolvedAnalyses("COMMENT", commentIds);
+      for (const row of rows) summaries.set(`COMMENT:${row.id}`, this.mapComment(row, analyses.get(String(row.id))?.effective));
+    }
+    return targets.flatMap((row) => summaries.get(`${row.content_type}:${row.content_id}`) ?? []);
   }
 
   async listTopics(): Promise<never> { dataNotReady(); }
