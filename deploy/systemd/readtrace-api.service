@@ -1,0 +1,39 @@
+[Unit]
+Description=ReadTrace API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=readtrace
+Group=readtrace
+WorkingDirectory=/opt/readtrace/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/readtrace/readtrace.env
+ExecStart=/opt/readtrace/current/node_modules/.bin/tsx apps/api/src/index.ts
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/readtrace/current
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

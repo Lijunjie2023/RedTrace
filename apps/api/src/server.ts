@@ -22,7 +22,8 @@ import { MockRepository } from "./repositories/mock.js";
 import type { DataRepository, ListOptions, Page } from "./repositories/types.js";
 import { RepositoryError, notImplemented } from "./repositories/types.js";
 
-const SESSION_COOKIE = "readtrace_session";
+const MOCK_SESSION_COOKIE = "readtrace_session";
+const LIVE_SESSION_COOKIE = "__Host-readtrace_session";
 const SESSION_LIFETIME_MS = 8 * 60 * 60 * 1000;
 const API_ROOT = "/api/v1";
 
@@ -128,6 +129,7 @@ export async function createServer(config: RuntimeConfig): Promise<FastifyInstan
     ? await MockRepository.create()
     : await (await import("./repositories/mysql.js")).createMysqlRepository();
   const dataMode: DataMode = config.dataMode === "mock" ? "MOCK" : "LIVE";
+  const sessionCookieName = config.dataMode === "mysql" ? LIVE_SESSION_COOKIE : MOCK_SESSION_COOKIE;
   const sessions = new Map<string, Session>();
   const app = Fastify({
     disableRequestLogging: true,
@@ -164,7 +166,7 @@ export async function createServer(config: RuntimeConfig): Promise<FastifyInstan
   app.addHook("onClose", async () => repository.close());
   app.addHook("preHandler", async (request) => {
     if (!request.url.startsWith(`${API_ROOT}/`) || request.url.startsWith(`${API_ROOT}/session`)) return;
-    const token = request.cookies[SESSION_COOKIE];
+    const token = request.cookies[sessionCookieName];
     const session = token ? sessions.get(token) : undefined;
     if (!session || session.expiresAt <= Date.now()) {
       if (token) sessions.delete(token);
@@ -195,29 +197,30 @@ export async function createServer(config: RuntimeConfig): Promise<FastifyInstan
 
   app.post(`${API_ROOT}/session`, async (request, reply) => {
     const credentials = LoginInputSchema.parse(request.body);
-    if (config.dataMode !== "mock") throw new RepositoryError("DATA_NOT_READY", 503, false, "正式登录能力尚未准备完成。");
-    const usernameMatches = secureEqual(credentials.username, config.mockAdminUsername);
-    const passwordMatches = secureEqual(credentials.password, config.mockAdminPassword);
+    const usernameMatches = secureEqual(credentials.username, config.adminUsername);
+    const passwordMatches = secureEqual(credentials.password, config.adminPassword);
     const authenticated = usernameMatches && passwordMatches;
     if (!authenticated) throw new RepositoryError("AUTH_FAILED", 401, false, "账号或密码错误。");
     const token = randomUUID();
     const expiresAt = Date.now() + SESSION_LIFETIME_MS;
     sessions.set(token, { expiresAt });
-    reply.setCookie(SESSION_COOKIE, token, {
-      httpOnly: true, sameSite: "strict", secure: false, path: "/", expires: new Date(expiresAt)
+    reply.setCookie(sessionCookieName, token, {
+      httpOnly: true, sameSite: "strict", secure: config.sessionCookieSecure, path: "/", expires: new Date(expiresAt)
     });
     return ok(request, { isAuthenticated: true, expiresAt: new Date(expiresAt).toISOString() });
   });
   app.get(`${API_ROOT}/session`, async (request) => {
-    const token = request.cookies[SESSION_COOKIE];
+    const token = request.cookies[sessionCookieName];
     const session = token ? sessions.get(token) : undefined;
     const active = Boolean(session && session.expiresAt > Date.now());
     return ok(request, { isAuthenticated: active, expiresAt: active ? new Date(session!.expiresAt).toISOString() : null });
   });
   app.delete(`${API_ROOT}/session`, async (request, reply) => {
-    const token = request.cookies[SESSION_COOKIE];
+    const token = request.cookies[sessionCookieName];
     if (token) sessions.delete(token);
-    reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    reply.clearCookie(sessionCookieName, {
+      path: "/", secure: config.sessionCookieSecure, sameSite: "strict"
+    });
     return ok(request, { isAuthenticated: false });
   });
 

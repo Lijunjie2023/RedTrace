@@ -77,12 +77,21 @@ test("Mock模式不会静态加载MySQL仓储", async () => {
   assert.doesNotMatch(mockRepository, /mysql2|createDatabaseContext|\.env\.local/);
 });
 
-test("正式数据模式不会接受本地模拟登录", async () => {
-  const server = await source("apps/api/src/server.ts");
-  assert.match(server, /if \(config\.dataMode !== "mock"\)/);
-  assert.match(server, /正式登录能力尚未准备完成/);
+test("正式数据模式使用独立管理员凭据并启用安全Cookie", async () => {
+  const [server, config] = await Promise.all([
+    source("apps/api/src/server.ts"),
+    source("apps/api/src/config.ts")
+  ]);
+  assert.doesNotMatch(server, /正式登录能力尚未准备完成/);
+  assert.doesNotMatch(server, /if \(config\.dataMode !== "mock"\)/);
+  assert.match(server, /config\.adminUsername/);
+  assert.match(server, /config\.adminPassword/);
+  assert.match(server, /secure: config\.sessionCookieSecure/);
   assert.match(server, /AUTH_FAILED/);
   assert.match(server, /timingSafeEqual/);
+  assert.match(config, /ADMIN_USERNAME/);
+  assert.match(config, /ADMIN_PASSWORD/);
+  assert.match(config, /SESSION_COOKIE_SECURE/);
 });
 
 test("错误包、撤销修正和LIVE混合分页保留安全边界", async () => {
