@@ -57,7 +57,27 @@ test("常见桌面宽度保持问题变化、热榜和代表性原话三栏", as
   const desktopCollapseBlock = styles.match(/@media \(max-width: 1439px\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
   assert.doesNotMatch(desktopCollapseBlock, /\.trend-panel|\.rising-topics|\.risk-evidence/);
 
-  assert.match(styles, /@media \(min-width: 1024px\) and \(max-width: 1199px\)/);
+  assert.doesNotMatch(styles, /@media \(min-width: 1024px\) and \(max-width: 1199px\)/);
+});
+
+test("Web响应式外壳占满视口并避免依赖隐藏溢出掩盖布局问题", async () => {
+  const styles = await source("apps/web/src/styles.css");
+  const bodyBlock = styles.match(/body \{([^}]*)\}/)?.[1] ?? "";
+  const mainContentBlock = styles.match(/\.main-content \{([^}]*)\}/)?.[1] ?? "";
+  const mobileBlock = styles.match(/@media \(max-width: 767px\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+
+  assert.doesNotMatch(bodyBlock, /overflow-x:\s*hidden/);
+  assert.doesNotMatch(mainContentBlock, /max-width/);
+  assert.match(mainContentBlock, /width:\s*calc\(100% - var\(--sidebar-fluid\)\)/);
+  assert.match(styles, /--sidebar-fluid:\s*clamp\(/);
+  assert.match(styles, /container:\s*sidebar\s*\/\s*inline-size/);
+  assert.match(styles, /@container sidebar \(min-width: 8rem\)/);
+  assert.match(styles, /@container sidebar \(min-width: 9rem\)/);
+  assert.match(styles, /@container sidebar \(min-width: 10rem\)/);
+  assert.match(styles, /\.category-dashboard-grid \{[^}]*repeat\(auto-fit,\s*minmax\(/);
+  assert.match(styles, /\.content-layout \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)\s+minmax\(18rem, 24rem\)/);
+  assert.match(styles, /@media \(min-width: 768px\) and \(max-width: 1320px\)[\s\S]*?\.trend-scroll-hint/);
+  assert.match(mobileBlock, /\.simulation-banner span \{ display: none; \}/);
 });
 
 test("模拟fixture明确标识模拟且不包含真实网络链接", async () => {
