@@ -21,7 +21,14 @@
     { "problemTypeId": "mock-problem-service", "problemTypeName": "售后体验", "contentCount": 4 }
   ],
   "risingTopics": [
-    { "topicId": "mock-topic-noise", "topicName": "模拟主题：运行声音反馈", "changeRatio": 0.25, "evidenceCount": 2 }
+    {
+      "topicId": "mock-topic-noise",
+      "topicName": "模拟主题：运行声音反馈",
+      "changeRatio": null,
+      "evidenceCount": 2,
+      "affectedPostCount": 1,
+      "commentCount": 1
+    }
   ],
   "highRiskContents": [
     {

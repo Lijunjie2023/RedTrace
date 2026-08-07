@@ -11,6 +11,7 @@ import type {
 } from "@readtrace/contracts";
 import type { BrandCreateInput, CollectionRunPage, DataRepository, ListOptions, OptionalPatch, Page } from "./types.js";
 import { RepositoryError, dataNotReady, notImplemented } from "./types.js";
+import { completeSentimentTrend, overviewDateBuckets } from "./overview-trend.js";
 
 interface CountRow extends RowDataPacket { total: number }
 
@@ -287,6 +288,7 @@ export class MysqlRepository implements DataRepository {
   }
 
   async getOverview(options: ListOptions): Promise<OverviewData> {
+    const requestedTrendBuckets = overviewDateBuckets(options);
     const brandClause = options.brandIds
       ? `AND brand_id IN (${options.brandIds.map(() => "?").join(",")})`
       : "";
@@ -343,6 +345,47 @@ export class MysqlRepository implements DataRepository {
       ? `AND b.id IN (${options.brandIds.map(() => "?").join(",")})`
       : "";
     const brandParams = [...scope.params, ...(options.brandIds ?? [])];
+    const comparisonPeriod = options.from !== undefined && options.to !== undefined
+      ? (() => {
+          const currentFromMs = Date.parse(options.from!);
+          const currentToMs = Date.parse(options.to!);
+          const naturalDayMs = 24 * 60 * 60 * 1000;
+          const periodShiftMs = Math.ceil((currentToMs - currentFromMs + 1) / naturalDayMs) * naturalDayMs;
+          return {
+            currentFrom: options.from!,
+            currentTo: options.to!,
+            previousFrom: new Date(currentFromMs - periodShiftMs).toISOString(),
+            previousTo: new Date(currentToMs - periodShiftMs).toISOString()
+          };
+        })()
+      : null;
+    const topicScope = comparisonPeriod
+      ? overviewScope({ ...options, from: comparisonPeriod.previousFrom, to: comparisonPeriod.currentTo })
+      : scope;
+    const topicPeriodCte = comparisonPeriod
+      ? `, periodized_topic_content AS (
+           SELECT ec.*,
+                  CASE
+                    WHEN ec.bucket_at >= ? AND ec.bucket_at <= ? THEN 'current'
+                    WHEN ec.bucket_at >= ? AND ec.bucket_at <= ? THEN 'previous'
+                    ELSE NULL
+                  END AS comparison_period
+           FROM effective_content ec
+           WHERE LOWER(COALESCE(ec.sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin
+         )`
+      : `, periodized_topic_content AS (
+           SELECT ec.*, 'current' AS comparison_period
+           FROM effective_content ec
+           WHERE LOWER(COALESCE(ec.sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin
+         )`;
+    const topicPeriodParams = comparisonPeriod
+      ? [
+          comparisonPeriod.currentFrom,
+          comparisonPeriod.currentTo,
+          comparisonPeriod.previousFrom,
+          comparisonPeriod.previousTo
+        ]
+      : [];
     const [metricsResult, trendResult] = await Promise.all([
       this.pool.query<RowDataPacket[]>(withScope(
         `SELECT SUM(content_type = _ascii'POST' COLLATE ascii_bin) AS post_count,
@@ -351,14 +394,14 @@ export class MysqlRepository implements DataRepository {
          FROM effective_content`
       ), scope.params),
       this.pool.query<RowDataPacket[]>(withScope(
-        `SELECT DATE_FORMAT(bucket_at, '%Y-%m-%d') AS bucket,
+        `SELECT DATE_FORMAT(CONVERT_TZ(bucket_at, '+00:00', '+08:00'), '%Y-%m-%d') AS bucket,
                 SUM(LOWER(COALESCE(sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'positive' COLLATE ascii_bin) AS positive,
                 SUM(LOWER(COALESCE(sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'neutral' COLLATE ascii_bin) AS neutral,
                 SUM(LOWER(COALESCE(sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin) AS negative,
                 SUM(sentiment IS NULL OR LOWER(sentiment) = _ascii'unknown' COLLATE ascii_bin) AS unknown_count
          FROM effective_content
          WHERE bucket_at IS NOT NULL
-         GROUP BY DATE_FORMAT(bucket_at, '%Y-%m-%d')
+         GROUP BY DATE_FORMAT(CONVERT_TZ(bucket_at, '+00:00', '+08:00'), '%Y-%m-%d')
          ORDER BY bucket`
       ), scope.params)
     ]);
@@ -399,15 +442,21 @@ export class MysqlRepository implements DataRepository {
          ORDER BY content_count DESC, ci.sort_order, ci.id
          LIMIT 10`
       ), scope.params),
-      this.pool.query<RowDataPacket[]>(withScope(
-        `SELECT ci.id AS topic_id, ci.display_name AS topic_name, COUNT(*) AS evidence_count
-         FROM effective_content ec
+      this.pool.query<RowDataPacket[]>(`${topicScope.cte}\n${topicPeriodCte}
+        SELECT ci.id AS topic_id, ci.display_name AS topic_name,
+               SUM(ec.comparison_period = 'current') AS evidence_count,
+               COUNT(DISTINCT CASE WHEN ec.comparison_period = 'current' THEN ec.post_id END) AS affected_post_count,
+               SUM(ec.comparison_period = 'current'
+                   AND ec.content_type = _ascii'COMMENT' COLLATE ascii_bin) AS comment_count,
+               ${comparisonPeriod
+                 ? "SUM(ec.comparison_period = 'previous')"
+                 : "NULL"} AS previous_evidence_count
+         FROM periodized_topic_content ec
          INNER JOIN classification_items ci ON ${classificationMembership("topic", "$.topicIds", "analysis_topics")}
-         WHERE LOWER(COALESCE(ec.sentiment, _ascii'unknown' COLLATE ascii_bin)) = _ascii'negative' COLLATE ascii_bin
          GROUP BY ci.id, ci.display_name
+         HAVING evidence_count > 0
          ORDER BY evidence_count DESC, ci.sort_order, ci.id
-         LIMIT 10`
-      ), scope.params)
+         LIMIT 10`, [...topicScope.params, ...topicPeriodParams])
     ]);
     const highRiskResult = await this.pool.query<RowDataPacket[]>(withScope(
       `SELECT content_type, content_id
@@ -431,10 +480,10 @@ export class MysqlRepository implements DataRepository {
         negativeCount,
         negativeRatio: totalContentCount === 0 ? 0 : negativeCount / totalContentCount
       },
-      sentimentTrend: trendResult[0].map((row) => ({
+      sentimentTrend: completeSentimentTrend(trendResult[0].map((row) => ({
         bucket: String(row.bucket), positive: Number(row.positive), neutral: Number(row.neutral),
         negative: Number(row.negative), unknown: Number(row.unknown_count)
-      })),
+      })), requestedTrendBuckets),
       brandRanking: brandResult[0].map((row) => ({
         brandId: String(row.brand_id), brandName: String(row.brand_name),
         contentCount: Number(row.content_count), negativeCount: Number(row.negative_count)
@@ -446,10 +495,22 @@ export class MysqlRepository implements DataRepository {
         problemTypeId: String(row.problem_type_id), problemTypeName: String(row.problem_type_name),
         contentCount: Number(row.content_count)
       })),
-      risingTopics: topicResult[0].map((row) => ({
-        topicId: String(row.topic_id), topicName: String(row.topic_name), changeRatio: null,
-        evidenceCount: Number(row.evidence_count)
-      })),
+      risingTopics: topicResult[0].map((row) => {
+        const evidenceCount = Number(row.evidence_count);
+        const previousEvidenceCount = row.previous_evidence_count === null || row.previous_evidence_count === undefined
+          ? null
+          : Number(row.previous_evidence_count);
+        return {
+          topicId: String(row.topic_id),
+          topicName: String(row.topic_name),
+          changeRatio: previousEvidenceCount === null || previousEvidenceCount === 0
+            ? null
+            : (evidenceCount - previousEvidenceCount) / previousEvidenceCount,
+          evidenceCount,
+          affectedPostCount: Number(row.affected_post_count ?? 0),
+          commentCount: Number(row.comment_count ?? 0)
+        };
+      }),
       highRiskContents,
       collectionHealth,
       lastSuccessfulCollectionAt

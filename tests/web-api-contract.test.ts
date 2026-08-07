@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { OverviewDataSchema } from "@readtrace/contracts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -76,7 +77,10 @@ test("Web响应式外壳占满视口并避免依赖隐藏溢出掩盖布局问�
   assert.match(styles, /@container sidebar \(min-width: 10rem\)/);
   assert.match(styles, /\.category-dashboard-grid \{[^}]*repeat\(auto-fit,\s*minmax\(/);
   assert.match(styles, /\.content-layout \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)\s+minmax\(18rem, 24rem\)/);
-  assert.match(styles, /@media \(min-width: 768px\) and \(max-width: 1320px\)[\s\S]*?\.trend-scroll-hint/);
+  assert.match(styles, /\.trend-visual \{[^}]*overflow:\s*hidden/);
+  assert.match(styles, /\.trend-visual svg \{[^}]*min-width:\s*0/);
+  assert.match(styles, /\.trend-axis \{[^}]*min-width:\s*0/);
+  assert.doesNotMatch(styles, /trend-scroll-hint/);
   assert.match(mobileBlock, /\.simulation-banner span \{ display: none; \}/);
 });
 
@@ -101,6 +105,37 @@ test("模拟fixture明确标识模拟且不包含真实网络链接", async () =
     const text = await source(`fixtures/web-api/${name}`);
     assert.doesNotMatch(text, /https?:\/\//i, `${name}不得伪装真实证据链接`);
   }
+});
+
+test("概览合同在滚动发布期间把旧版热榜计数字段视为暂缺", async () => {
+  const overview = JSON.parse(await source("fixtures/web-api/overview.json")) as {
+    risingTopics: Array<Record<string, unknown>>;
+  };
+  delete overview.risingTopics[0]?.affectedPostCount;
+  delete overview.risingTopics[0]?.commentCount;
+
+  const parsed = OverviewDataSchema.parse(overview);
+
+  assert.equal(parsed.risingTopics[0]?.affectedPostCount, null);
+  assert.equal(parsed.risingTopics[0]?.commentCount, null);
+});
+
+test("本地开发代理从仓库根目录读取配置且不硬编码目标地址", async () => {
+  const viteConfig = await source("apps/web/vite.config.ts");
+
+  assert.match(viteConfig, /new URL\("\.\.\/\.\.\/", import\.meta\.url\)/);
+  assert.match(viteConfig, /loadEnv\(mode, repositoryRoot, ""\)/);
+  assert.match(viteConfig, /READTRACE_API_PROXY_TARGET/);
+  assert.doesNotMatch(viteConfig, /target:\s*["']https?:\/\//);
+});
+
+test("登录页只把明确的鉴权失败提示为账号或密码错误", async () => {
+  const loginPage = await source("apps/web/src/pages/login.tsx");
+
+  assert.match(loginPage, /reason\.code === "AUTH_FAILED"/);
+  assert.match(loginPage, /账号和密码尚未完成校验/);
+  assert.match(loginPage, /<p>\{error\}<\/p>/);
+  assert.doesNotMatch(loginPage, /<p>账号或密码不正确，或当前账号暂时无法登录。<\/p>/);
 });
 
 test("Mock模式不会静态加载MySQL仓储", async () => {

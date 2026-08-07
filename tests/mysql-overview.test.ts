@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { MysqlRepository } from "../apps/api/src/repositories/mysql.js";
+import { isWithinDateRange, overviewDateBuckets } from "../apps/api/src/repositories/overview-trend.js";
+import { RepositoryError } from "../apps/api/src/repositories/types.js";
 
 const defaultOptions = { page: 1, pageSize: 20 as const, sortOrder: "DESC" as const };
 
@@ -44,7 +46,8 @@ test("MySQL 概览使用真实聚合结果并保留健康状态", async () => {
     if (sql.includes("AS post_count") && sql.includes("FROM effective_content")) {
       return [{ post_count: 2, comment_count: 3, negative_count: 2 }] as RowDataPacket[];
     }
-    if (sql.includes("DATE_FORMAT(bucket_at")) {
+    if (sql.includes("DATE_FORMAT(CONVERT_TZ(bucket_at")) {
+      assert.match(sql, /DATE_FORMAT\(CONVERT_TZ\(bucket_at, '\+00:00', '\+08:00'\), '%Y-%m-%d'\)/);
       return [{ bucket: "2026-08-06", positive: 1, neutral: 1, negative: 2, unknown_count: 1 }] as RowDataPacket[];
     }
     if (sql.includes("INNER JOIN matched_brands")) {
@@ -57,7 +60,14 @@ test("MySQL 概览使用真实聚合结果并保留健康状态", async () => {
       return [{ problem_type_id: 21, problem_type_name: "噪音", content_count: 2 }] as RowDataPacket[];
     }
     if (sql.includes("classification_type = 'topic'")) {
-      return [{ topic_id: 31, topic_name: "噪音体验", evidence_count: 2 }] as RowDataPacket[];
+      return [{
+        topic_id: 31,
+        topic_name: "噪音体验",
+        evidence_count: 4,
+        affected_post_count: 3,
+        comment_count: 2,
+        previous_evidence_count: 2
+      }] as RowDataPacket[];
     }
     if (sql.includes("SELECT content_type, content_id")) return [];
     throw new Error(`未覆盖的测试查询：${sql}`);
@@ -91,8 +101,10 @@ test("MySQL 概览使用真实聚合结果并保留健康状态", async () => {
   assert.deepEqual(overview.risingTopics[0], {
     topicId: "31",
     topicName: "噪音体验",
-    changeRatio: null,
-    evidenceCount: 2
+    changeRatio: 1,
+    evidenceCount: 4,
+    affectedPostCount: 3,
+    commentCount: 2
   });
 });
 
@@ -120,6 +132,98 @@ test("MySQL 概览把品牌和品类筛选传入同一统计范围", async () =>
     assert.ok(call.params.includes("brand-leader"));
     assert.ok(call.params.includes("category-fridge"));
   }
+});
+
+test("MySQL 概览按已选自然日补齐没有内容的趋势日期", async () => {
+  const repository = new MysqlRepository(poolWithQuery((sql) => {
+    if (sql.includes("FROM collection_tasks")) {
+      return [{ status: "success", finished_at: "2026-08-06T02:30:00.000Z" }] as RowDataPacket[];
+    }
+    if (sql.includes("DATE_FORMAT(CONVERT_TZ(bucket_at")) {
+      return [{ bucket: "2026-08-05", positive: 0, neutral: 0, negative: 2, unknown_count: 0 }] as RowDataPacket[];
+    }
+    return [];
+  }));
+
+  const overview = await repository.getOverview({
+    ...defaultOptions,
+    from: "2026-08-04T00:00:00+08:00",
+    to: "2026-08-06T23:59:59+08:00"
+  });
+
+  assert.deepEqual(overview.sentimentTrend, [
+    { bucket: "2026-08-04", positive: 0, neutral: 0, negative: 0, unknown: 0 },
+    { bucket: "2026-08-05", positive: 0, neutral: 0, negative: 2, unknown: 0 },
+    { bucket: "2026-08-06", positive: 0, neutral: 0, negative: 0, unknown: 0 }
+  ]);
+});
+
+test("MySQL 热榜按去重帖子、直接命中评论和紧邻等长上期聚合", async () => {
+  let checkedTopicQuery = false;
+  const repository = new MysqlRepository(poolWithParams((sql, params) => {
+    if (sql.includes("FROM collection_tasks")) {
+      return [{ status: "success", finished_at: "2026-08-07T02:30:00.000Z" }] as RowDataPacket[];
+    }
+    if (sql.includes("classification_type = 'topic'")) {
+      checkedTopicQuery = true;
+      assert.match(sql, /COUNT\(DISTINCT CASE WHEN ec\.comparison_period = 'current' THEN ec\.post_id END\) AS affected_post_count/);
+      assert.match(sql, /SUM\(ec\.comparison_period = 'current'\s+AND ec\.content_type = _ascii'COMMENT' COLLATE ascii_bin\) AS comment_count/);
+      assert.deepEqual(params.slice(-4), [
+        "2026-08-01T00:00:00+08:00",
+        "2026-08-07T23:59:59+08:00",
+        "2026-07-24T16:00:00.000Z",
+        "2026-07-31T15:59:59.000Z"
+      ]);
+    }
+    return [];
+  }));
+
+  await repository.getOverview({
+    ...defaultOptions,
+    from: "2026-08-01T00:00:00+08:00",
+    to: "2026-08-07T23:59:59+08:00"
+  });
+
+  assert.equal(checkedTopicQuery, true);
+});
+
+test("概览日期范围允许366天并拒绝367天", () => {
+  const allowed = overviewDateBuckets({
+    ...defaultOptions,
+    from: "2025-01-01T00:00:00+08:00",
+    to: "2026-01-01T23:59:59+08:00"
+  });
+  assert.equal(allowed?.length, 366);
+  assert.throws(
+    () => overviewDateBuckets({
+      ...defaultOptions,
+      from: "2025-01-01T00:00:00+08:00",
+      to: "2026-01-02T23:59:59+08:00"
+    }),
+    (error: unknown) => error instanceof RepositoryError
+      && error.code === "VALIDATION_ERROR"
+      && error.message === "概览日期范围最多支持366天。"
+  );
+});
+
+test("概览日期范围要求from和to成对提供", () => {
+  for (const options of [
+    { ...defaultOptions, from: "2026-08-01T00:00:00+08:00" },
+    { ...defaultOptions, to: "2026-08-07T23:59:59+08:00" }
+  ]) {
+    assert.throws(
+      () => overviewDateBuckets(options),
+      (error: unknown) => error instanceof RepositoryError
+        && error.code === "VALIDATION_ERROR"
+        && error.message === "from和to必须同时提供。"
+    );
+  }
+});
+
+test("Mock 日期筛选按时间点比较不受时区字符串排序影响", () => {
+  const publishedAt = "2026-08-02T03:00:00.000Z";
+  assert.equal(isWithinDateRange(publishedAt, { from: "2026-08-02T10:00:00+08:00" }), true);
+  assert.equal(isWithinDateRange(publishedAt, { to: "2026-08-02T10:30:00+08:00" }), false);
 });
 
 test("MySQL 数据管理统计映射采集量、AI分类量和异常状态", async () => {

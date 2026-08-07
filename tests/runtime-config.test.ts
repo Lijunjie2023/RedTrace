@@ -16,10 +16,14 @@ test("正式模式强制使用安全Cookie", () => {
   );
 });
 
-test("正式模式拒绝弱管理员密码", () => {
+test("正式模式只要求管理员密码至少八位", () => {
   assert.throws(
-    () => loadRuntimeConfig({ ...liveBase, ADMIN_PASSWORD: "short" }),
+    () => loadRuntimeConfig({ ...liveBase, ADMIN_PASSWORD: "1234567" }),
     /runtime_config_invalid/
+  );
+  assert.equal(
+    loadRuntimeConfig({ ...liveBase, ADMIN_PASSWORD: "abcdefgh" }).adminPassword,
+    "abcdefgh"
   );
 });
 

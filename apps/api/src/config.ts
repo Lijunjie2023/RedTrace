@@ -22,7 +22,7 @@ const RuntimeConfigSchema = z.object({
   }
   if (!value.ADMIN_PASSWORD) {
     context.addIssue({ code: "custom", path: ["ADMIN_PASSWORD"], message: "required_in_mysql_mode" });
-  } else if (value.ADMIN_PASSWORD.length < 16) {
+  } else if (value.ADMIN_PASSWORD.length < 8) {
     context.addIssue({ code: "custom", path: ["ADMIN_PASSWORD"], message: "password_too_short" });
   }
   if (value.SESSION_COOKIE_SECURE === false) {

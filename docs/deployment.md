@@ -75,6 +75,8 @@ DEEPSEEK_CLAIM_LEASE_MS=180000
 DEEPSEEK_PROMPT_VERSION=content-analysis-v1
 ```
 
+`ADMIN_PASSWORD`至少需要8个字符。应用只校验长度，不要求必须同时包含大小写字母、数字或特殊字符。
+
 如果RDS要求指定CA文件，再设置`MYSQL_SSL_CA_FILE`并把证书放在`/etc/readtrace`下。RDS白名单只加入ECS用于访问RDS的内网地址。
 
 数据库和分析命令默认读取项目根目录的`.env.local`。在服务器创建指向受控配置的符号链接，避免复制秘密：

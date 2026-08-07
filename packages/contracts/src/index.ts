@@ -235,7 +235,14 @@ export const OverviewDataSchema = z.object({
   brandRanking: z.array(z.object({ brandId: z.string(), brandName: z.string(), contentCount: z.number(), negativeCount: z.number() })),
   categoryRanking: z.array(z.object({ categoryId: z.string(), categoryName: z.string(), contentCount: z.number() })),
   problemTypeRanking: z.array(z.object({ problemTypeId: z.string(), problemTypeName: z.string(), contentCount: z.number() })),
-  risingTopics: z.array(z.object({ topicId: z.string(), topicName: z.string(), changeRatio: z.number().nullable(), evidenceCount: z.number() })),
+  risingTopics: z.array(z.object({
+    topicId: z.string(),
+    topicName: z.string(),
+    changeRatio: z.number().nullable(),
+    evidenceCount: z.number().int().min(0),
+    affectedPostCount: z.number().int().min(0).nullable().default(null),
+    commentCount: z.number().int().min(0).nullable().default(null)
+  })),
   highRiskContents: z.array(ContentSummarySchema),
   collectionHealth: CollectionHealthSchema,
   lastSuccessfulCollectionAt: z.string().datetime().nullable()

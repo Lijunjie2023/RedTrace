@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, ContractError, type ContentSummary } from "../api/client";
 import { useResponseMeta } from "../api/meta-store";
@@ -49,7 +49,7 @@ export function ErrorNotice({ error, retry, compact = false }: { error: unknown;
         ? ["数据格式异常", "接口返回内容与当前版本不一致，请联系维护人员。"]
         : code === "NOT_FOUND"
           ? ["请求内容不存在", "这条内容可能已被删除，或者当前链接已经失效。"]
-          : code === "INVALID_ARGUMENT"
+          : code === "VALIDATION_ERROR"
             ? ["筛选条件有误", "请检查日期范围和筛选条件后重新加载。"]
         : ["无法连接数据服务", "请检查网络连接，或稍后重新加载。"];
   return (
@@ -115,68 +115,121 @@ export function ExportButton({ filters }: { filters: URLSearchParams }): ReactNo
   return <div className="export-unavailable"><button className="button button--primary" type="button" disabled aria-describedby="export-unavailable-note">{label}</button><small id="export-unavailable-note">当前版本不会生成空文件或不完整文件。</small></div>;
 }
 
-function MultiSelectFilter({ label, options, selected, placeholder, disabled, onChange }: {
+function MultiSelectFilter({ id, label, options, selected, placeholder, disabled, open, onOpenChange, onChange }: {
+  id: string;
   label: string;
   options: Array<{ id: string; name: string }>;
   selected: string[];
   placeholder: string;
   disabled: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onChange: (ids: string[]) => void;
 }): ReactNode {
   const [query, setQuery] = useState("");
+  const componentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      return;
+    }
+    const closeOutside = (event: PointerEvent) => {
+      if (!componentRef.current?.contains(event.target as Node)) onOpenChange(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onOpenChange(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open, onOpenChange]);
   const visible = options.filter((option) => option.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const selectedNames = selected.map((id) => options.find((option) => option.id === id)?.name ?? "已选项");
   const summary = selected.length === 0 ? placeholder : selected.length === 1 ? selectedNames[0] : `已选${selected.length}项`;
   const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id]);
   return (
-    <div className="multi-select-filter">
+    <div ref={componentRef} className="multi-select-filter">
       <span className="multi-select-filter__label">{label}</span>
-      <details className={disabled ? "is-disabled" : ""}>
-        <summary aria-label={`${label}：${summary}`} aria-disabled={disabled}>{disabled ? "正在读取" : summary}<span aria-hidden="true">⌄</span></summary>
-        {!disabled ? <div className="multi-select-filter__popover">
+      <button className="multi-select-filter__trigger" type="button" aria-label={`${label}：${summary}`} aria-expanded={open} aria-controls={`${id}-options`} disabled={disabled} onClick={() => onOpenChange(!open)}>{disabled ? "正在读取" : summary}<span aria-hidden="true">⌄</span></button>
+        {open && !disabled ? <div className="multi-select-filter__popover" id={`${id}-options`}>
           <label className="multi-select-filter__search"><span className="visually-hidden">搜索{label}</span><input type="search" value={query} placeholder={`搜索${label}`} onChange={(event) => setQuery(event.target.value)} /></label>
           <div className="multi-select-filter__actions"><button type="button" onClick={() => onChange(options.map((option) => option.id))}>全选</button><button type="button" onClick={() => onChange([])}>清空</button></div>
           <div className="multi-select-filter__options">
             {visible.length ? visible.map((option) => <label key={option.id}><input type="checkbox" checked={selected.includes(option.id)} onChange={() => toggle(option.id)} /><span>{option.name}</span></label>) : <p>没有匹配项</p>}
           </div>
         </div> : null}
-      </details>
     </div>
   );
 }
 
-export function FilterBar({ search, setSearch, showSentiment = true, showCategory = false, showDate = true }: {
+export function FilterBar({ search, setSearch, draftSearch, setDraftSearch, showSentiment = true, showCategory = false, showDate = true, deferred = false, defaultSearch, sticky = false }: {
   search: URLSearchParams;
   setSearch: (next: URLSearchParams) => void;
+  draftSearch?: URLSearchParams;
+  setDraftSearch?: (next: URLSearchParams) => void;
   showSentiment?: boolean;
   showCategory?: boolean;
   showDate?: boolean;
+  deferred?: boolean;
+  defaultSearch?: URLSearchParams;
+  sticky?: boolean;
 }): ReactNode {
+  const searchKey = search.toString();
+  const [internalDraft, setInternalDraft] = useState(() => new URLSearchParams(searchKey));
+  const [openFilter, setOpenFilter] = useState<"brand" | "category" | null>(null);
   const brandLoader = useMemo(() => () => api.getBrands(), []);
   const brands = useResource(brandLoader, []);
   const classificationLoader = useMemo(() => () => api.getClassifications(), []);
   const classifications = useResource(classificationLoader, []);
+  useEffect(() => {
+    if (!draftSearch) setInternalDraft(new URLSearchParams(searchKey));
+  }, [draftSearch, searchKey]);
+  const current = deferred ? draftSearch ?? internalDraft : search;
+  const updateDraft = (next: URLSearchParams) => {
+    if (setDraftSearch) setDraftSearch(next); else setInternalDraft(next);
+  };
   const update = (key: string, value: string) => {
-    const next = new URLSearchParams(search);
+    const next = new URLSearchParams(current);
     if (value) next.set(key, value); else next.delete(key);
     if (key === "brandIds" || key === "categoryIds") next.delete("topicId");
     next.delete("page");
+    if (deferred) updateDraft(next); else setSearch(next);
+  };
+  const clear = () => {
+    const next = new URLSearchParams(defaultSearch ?? "");
+    if (deferred) updateDraft(next); else setSearch(next);
+    setOpenFilter(null);
+  };
+  const apply = () => {
+    const next = new URLSearchParams(current);
+    next.delete("topicId");
+    next.delete("page");
+    setOpenFilter(null);
     setSearch(next);
   };
-  const clear = () => setSearch(new URLSearchParams());
-  const selectedBrandIds = (search.get("brandIds") ?? "").split(",").filter(Boolean);
-  const selectedCategoryIds = (search.get("categoryIds") ?? "").split(",").filter(Boolean);
+  const selectedBrandIds = (current.get("brandIds") ?? "").split(",").filter(Boolean);
+  const selectedCategoryIds = (current.get("categoryIds") ?? "").split(",").filter(Boolean);
   const categoryOptions = classifications.data?.items
     .filter((item) => item.classificationType === "CATEGORY" && item.isEnabled)
     .sort((left, right) => left.sortOrder - right.sortOrder)
     .map((item) => ({ id: item.id, name: item.displayName })) ?? [];
+  const normalized = (value: URLSearchParams) => {
+    const next = new URLSearchParams(value);
+    next.sort();
+    return next.toString();
+  };
+  const hasPendingChanges = deferred && normalized(current) !== normalized(search);
   return (
-    <div className="filter-bar" aria-label="数据筛选">
-      {showDate ? <><label><span>开始时间</span><input type="date" value={search.get("from")?.slice(0, 10) ?? ""} onChange={(event) => update("from", event.target.value ? `${event.target.value}T00:00:00+08:00` : "")} /></label><label><span>结束时间</span><input type="date" value={search.get("to")?.slice(0, 10) ?? ""} onChange={(event) => update("to", event.target.value ? `${event.target.value}T23:59:59+08:00` : "")} /></label></> : null}
-      <MultiSelectFilter label="监控品牌" options={brands.data?.items.map((brand) => ({ id: brand.id, name: brand.name })) ?? []} selected={selectedBrandIds} placeholder={brands.error ? "品牌暂不可用" : "全部品牌"} disabled={brands.loading || Boolean(brands.error)} onChange={(ids) => update("brandIds", ids.join(","))} />
-      {showCategory ? <MultiSelectFilter label="产品品类" options={categoryOptions} selected={selectedCategoryIds} placeholder={classifications.error ? "品类暂不可用" : "全部品类"} disabled={classifications.loading || Boolean(classifications.error)} onChange={(ids) => update("categoryIds", ids.join(","))} /> : null}
-      {showSentiment ? <label><span>情感倾向</span><select value={search.get("sentiments") ?? search.get("sentiment") ?? ""} onChange={(event) => update("sentiments", event.target.value)}><option value="">全部</option><option value="NEGATIVE">负向</option><option value="NEUTRAL">中性</option><option value="POSITIVE">正向</option></select></label> : null}
-      {search.size > 0 ? <button className="button button--quiet" type="button" onClick={clear}>清除筛选</button> : null}
+    <div className={`filter-bar ${sticky ? "is-sticky" : ""}`} aria-label="数据筛选">
+      {showDate ? <><label><span>开始时间</span><input type="date" value={current.get("from")?.slice(0, 10) ?? ""} onChange={(event) => update("from", event.target.value ? `${event.target.value}T00:00:00+08:00` : "")} /></label><label><span>结束时间</span><input type="date" value={current.get("to")?.slice(0, 10) ?? ""} onChange={(event) => update("to", event.target.value ? `${event.target.value}T23:59:59+08:00` : "")} /></label></> : null}
+      <MultiSelectFilter id="brand-filter" label="监控品牌" options={brands.data?.items.map((brand) => ({ id: brand.id, name: brand.name })) ?? []} selected={selectedBrandIds} placeholder={brands.error ? "品牌暂不可用" : "全部品牌"} disabled={brands.loading || Boolean(brands.error)} open={openFilter === "brand"} onOpenChange={(open) => setOpenFilter(open ? "brand" : null)} onChange={(ids) => update("brandIds", ids.join(","))} />
+      {showCategory ? <MultiSelectFilter id="category-filter" label="产品品类" options={categoryOptions} selected={selectedCategoryIds} placeholder={classifications.error ? "品类暂不可用" : "全部品类"} disabled={classifications.loading || Boolean(classifications.error)} open={openFilter === "category"} onOpenChange={(open) => setOpenFilter(open ? "category" : null)} onChange={(ids) => update("categoryIds", ids.join(","))} /> : null}
+      {showSentiment ? <label><span>情感倾向</span><select value={current.get("sentiments") ?? current.get("sentiment") ?? ""} onChange={(event) => update("sentiments", event.target.value)}><option value="">全部</option><option value="NEGATIVE">负向</option><option value="NEUTRAL">中性</option><option value="POSITIVE">正向</option></select></label> : null}
+      {hasPendingChanges ? <span className="filter-bar__pending" role="status">筛选条件尚未查询</span> : null}
+      {current.size > 0 || deferred ? <div className="filter-bar__actions"><button className="button button--quiet" type="button" onClick={clear}>清除筛选</button>{deferred ? <button className="button button--primary" type="button" onClick={apply}>查询</button> : null}</div> : null}
     </div>
   );
 }

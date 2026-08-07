@@ -1,10 +1,11 @@
-import { useMemo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type Evidence, type OverviewData } from "../api/client";
 import { DataHealth, EmptyState, ErrorNotice, EvidenceItem, FilterBar, OriginalLink, Panel } from "../components/common";
 import { Icon } from "../components/icons";
 import { SkeletonPage } from "../components/page";
 import { useResource } from "../hooks/use-resource";
+import { recentShanghaiRange } from "../utils/date-range";
 import { enumLabel, formatDateTime, formatNumber, formatPercent } from "../utils/format";
 
 type TrendPoint = OverviewData["sentimentTrend"][number];
@@ -32,6 +33,13 @@ function TrendChart({ points, onDrill }: { points: TrendPoint[]; onDrill: (bucke
   const x = (index: number) => points.length === 1 ? width / 2 : paddingX + (index / (points.length - 1)) * (width - paddingX * 2);
   const y = (value: number) => height - paddingY - (value / max) * (height - paddingY * 2);
   const path = points.map((point, index) => `${index ? "L" : "M"}${x(index)},${y(point.negative)}`).join(" ");
+  const labelIndexes = new Set<number>();
+  if (points.length <= 7) points.forEach((_, index) => labelIndexes.add(index));
+  else {
+    const step = Math.ceil((points.length - 1) / 6);
+    for (let index = 0; index < points.length; index += step) labelIndexes.add(index);
+    labelIndexes.add(points.length - 1);
+  }
   const activate = (event: KeyboardEvent<SVGCircleElement>, bucket: string) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -39,14 +47,13 @@ function TrendChart({ points, onDrill }: { points: TrendPoint[]; onDrill: (bucke
     }
   };
   return (
-    <div className="trend-visual" role="region" aria-label="负面内容趋势折线图，下方表格提供完整数据">
+    <div className="trend-visual" role="region" aria-label="负面内容趋势折线图，数据点可以进入对应日期的内容">
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
         <title>负面内容趋势，数据点可以使用键盘进入对应内容</title>
         {[0.25, 0.5, 0.75, 1].map((ratio) => <line key={ratio} className="trend-gridline" x1={paddingX} x2={width - paddingX} y1={y(max * ratio)} y2={y(max * ratio)} />)}
-        <g className="trend-series trend-series--negative"><path d={path} />{points.map((point, index) => <circle key={point.bucket} cx={x(index)} cy={y(point.negative)} r="5" role="button" tabIndex={0} aria-label={`查看${point.bucket}负向内容${point.negative}条`} onClick={() => onDrill(point.bucket)} onKeyDown={(event) => activate(event, point.bucket)}><title>{point.bucket} · 负向{point.negative}条</title></circle>)}</g>
+        <g className="trend-series trend-series--negative"><path d={path} />{points.map((point, index) => <g key={point.bucket} className="trend-point"><circle className="trend-point__hit" cx={x(index)} cy={y(point.negative)} r="14" role="button" tabIndex={0} aria-label={`查看${point.bucket}负向内容${point.negative}条`} onClick={() => onDrill(point.bucket)} onKeyDown={(event) => activate(event, point.bucket)}><title>{point.bucket} · 负向{point.negative}条</title></circle><circle className="trend-point__marker" cx={x(index)} cy={y(point.negative)} r="5" aria-hidden="true" /></g>)}</g>
       </svg>
-      <div className="trend-axis" aria-hidden="true">{points.map((point) => <span key={point.bucket}>{point.bucket.slice(5)}</span>)}</div>
-      <span className="trend-scroll-hint">趋势图可以左右滑动，完整数值见下方数据表</span>
+      <div className="trend-axis" style={{ "--trend-count": points.length } as CSSProperties} aria-hidden="true">{points.map((point, index) => <span key={point.bucket}>{labelIndexes.has(index) ? point.bucket.slice(5) : ""}</span>)}</div>
     </div>
   );
 }
@@ -77,8 +84,8 @@ function SentimentComposition({ data }: { data: OverviewData }): ReactNode {
   const trendNegativeRatio = total ? totals.negative / total : null;
   const contractRatio = data.metrics.negativeRatio;
   const ratiosMatch = metricTotal !== null && total === metricTotal && trendNegativeRatio !== null && contractRatio !== null && Math.abs(trendNegativeRatio - contractRatio) <= 0.01;
-  if (!total) return <Panel title="情感构成" caption="按当前筛选范围"><EmptyState kind="filtered" /></Panel>;
-  if (!ratiosMatch) return <Panel title="情感构成" caption="按当前筛选范围" className="sentiment-panel"><div className="composition-unavailable"><Icon name="info" /><strong>占比暂不可用</strong><p>趋势与总览的统计口径尚未对齐，暂不展示可能产生误导的比例。</p></div></Panel>;
+  if (!total) return <Panel title="情感构成" caption="按当前筛选范围" className="sentiment-panel"><div className="sentiment-composition sentiment-composition--empty"><div className="sentiment-donut is-empty" role="img" aria-label="暂无情感数据"><div><strong>暂无数据</strong></div></div><p>当前筛选范围内没有可用内容</p></div></Panel>;
+  if (!ratiosMatch) return <Panel title="情感构成" caption="按当前筛选范围" className="sentiment-panel"><div className="sentiment-composition sentiment-composition--empty"><div className="sentiment-donut is-empty" role="img" aria-label="情感占比暂不可用"><div><strong>暂不可用</strong></div></div><p>统计口径尚未对齐，暂不展示可能产生误导的比例</p></div></Panel>;
   const negativeEnd = (totals.negative / total) * 100;
   const positiveEnd = negativeEnd + (totals.positive / total) * 100;
   const neutralEnd = positiveEnd + (totals.neutral / total) * 100;
@@ -104,19 +111,34 @@ function EvidencePanel({ defaultItems, topicId, topicName, filters }: { defaultI
 
 export function OverviewPage(): ReactNode {
   const [search, setSearch] = useSearchParams();
-  const overviewFilters = overviewSearch(search);
+  const searchKey = search.toString();
+  const defaultFilters = useMemo(() => recentShanghaiRange(), []);
+  const defaultKey = defaultFilters.toString();
+  const appliedSearch = useMemo(() => {
+    const next = new URLSearchParams(searchKey);
+    if (!next.has("from")) next.set("from", defaultFilters.get("from")!);
+    if (!next.has("to")) next.set("to", defaultFilters.get("to")!);
+    return next;
+  }, [searchKey, defaultKey]);
+  const appliedKey = appliedSearch.toString();
+  const [draftSearch, setDraftSearch] = useState(() => new URLSearchParams(appliedSearch));
+  useEffect(() => {
+    if (appliedKey !== searchKey) setSearch(appliedSearch, { replace: true });
+  }, [appliedKey, searchKey, setSearch]);
+  useEffect(() => setDraftSearch(new URLSearchParams(appliedKey)), [appliedKey]);
+  const overviewFilters = overviewSearch(appliedSearch);
   const overviewKey = overviewFilters.toString();
   const loader = useMemo(() => () => api.getOverview(new URLSearchParams(overviewKey)), [overviewKey]);
   const resource = useResource(loader, [overviewKey]);
   const navigate = useNavigate();
-  const selectedTopicId = search.get("topicId");
+  const selectedTopicId = appliedSearch.get("topicId");
 
-  if (resource.loading) return <><FilterBar search={search} setSearch={setSearch} showSentiment={false} showCategory /><SkeletonPage /></>;
-  if (!resource.data) return <><FilterBar search={search} setSearch={setSearch} showSentiment={false} showCategory /><ErrorNotice error={resource.error} retry={resource.retry} /></>;
+  if (resource.loading) return <><FilterBar search={appliedSearch} setSearch={setSearch} draftSearch={draftSearch} setDraftSearch={setDraftSearch} showSentiment={false} showCategory deferred defaultSearch={defaultFilters} sticky /><SkeletonPage /></>;
+  if (!resource.data) return <><FilterBar search={appliedSearch} setSearch={setSearch} draftSearch={draftSearch} setDraftSearch={setDraftSearch} showSentiment={false} showCategory deferred defaultSearch={defaultFilters} sticky /><ErrorNotice error={resource.error} retry={resource.retry} /></>;
 
   const { data } = resource.data;
   const selectedTopic = data.risingTopics.find((topic) => topic.topicId === selectedTopicId) ?? null;
-  const categoryIds = selectedIds(search, "categoryIds");
+  const categoryIds = selectedIds(draftSearch, "categoryIds");
   const notCollected = data.collectionHealth === "NOT_COLLECTED";
   const drill = (extra: Record<string, string>) => {
     const next = new URLSearchParams(overviewFilters);
@@ -124,27 +146,27 @@ export function OverviewPage(): ReactNode {
     navigate(`/content?${next.toString()}`);
   };
   const selectTopic = (topicId: string) => {
-    const next = new URLSearchParams(search);
+    const next = new URLSearchParams(appliedSearch);
     if (topicId === selectedTopicId) next.delete("topicId"); else next.set("topicId", topicId);
     setSearch(next);
   };
   const toggleCategory = (categoryId: string) => {
-    const next = new URLSearchParams(search);
-    const current = selectedIds(search, "categoryIds");
+    const next = new URLSearchParams(draftSearch);
+    const current = selectedIds(draftSearch, "categoryIds");
     const values = current.includes(categoryId) ? current.filter((id) => id !== categoryId) : [...current, categoryId];
     if (values.length) next.set("categoryIds", values.join(",")); else next.delete("categoryIds");
     next.delete("topicId");
-    setSearch(next);
+    setDraftSearch(next);
   };
   const drillTrend = (bucket: string) => /^\d{4}-\d{2}-\d{2}$/.test(bucket) ? drill({ sentiments: "NEGATIVE", from: `${bucket}T00:00:00+08:00`, to: `${bucket}T23:59:59+08:00` }) : drill({ sentiments: "NEGATIVE" });
 
   return <>
-    <FilterBar search={search} setSearch={setSearch} showSentiment={false} showCategory />
+    <FilterBar search={appliedSearch} setSearch={setSearch} draftSearch={draftSearch} setDraftSearch={setDraftSearch} showSentiment={false} showCategory deferred defaultSearch={defaultFilters} sticky />
     {resource.error ? <><ErrorNotice error={resource.error} retry={resource.retry} compact /><div className="notice notice--stale" role="status"><Icon name="info" /><strong>下方为上一次成功查询结果，尚未按当前筛选更新。</strong></div></> : null}
     {notCollected ? <EmptyState kind="not-collected" /> : <div className={`overview-grid ${resource.refreshing ? "is-refreshing" : ""}`} aria-busy={resource.refreshing}>
       {resource.refreshing ? <div className="refresh-status" role="status"><span />正在更新数据，当前结果仍可查看</div> : null}
-      <Panel title="负面问题变化" caption="点击数据点查看相关内容" className="trend-panel"><div className="trend-panel__topline"><div className="legend" aria-label="图例"><span><i className="legend__risk" />负面相关量</span></div><button className="text-link" type="button" onClick={() => drill({ sentiments: "NEGATIVE" })}>查看负面内容</button></div><TrendChart points={data.sentimentTrend} onDrill={drillTrend} /><div className="metric-ribbon"><div><span>负面内容</span><strong>{formatNumber(data.metrics.negativeCount)}</strong></div><div><span>负面占比</span><strong>{formatPercent(data.metrics.negativeRatio)}</strong></div><div><span>帖子</span><strong>{formatNumber(data.metrics.postCount)}</strong></div><div><span>评论</span><strong>{formatNumber(data.metrics.commentCount)}</strong></div></div><details className="trend-table"><summary>查看趋势数据表</summary><div className="table-scroll"><table><thead><tr><th>日期</th><th>负向</th><th>正向</th><th>中性</th><th>无法判断</th></tr></thead><tbody>{data.sentimentTrend.map((point) => <tr key={point.bucket}><td>{point.bucket}</td><td>{point.negative}</td><td>{point.positive}</td><td>{point.neutral}</td><td>{point.unknown}</td></tr>)}</tbody></table></div></details></Panel>
-      <Panel title="问题热榜" caption="点击问题联动右侧原话" className="rising-topics">{data.risingTopics.length ? <ol>{[...data.risingTopics].sort((left, right) => right.evidenceCount - left.evidenceCount).slice(0, 10).map((topic, index) => <li key={topic.topicId}><button type="button" className={topic.topicId === selectedTopicId ? "is-active" : ""} aria-pressed={topic.topicId === selectedTopicId} onClick={() => selectTopic(topic.topicId)}><span>{index + 1}</span><b>{topic.topicName}</b>{topic.changeRatio !== null ? <em>较上期{formatPercent(topic.changeRatio)}</em> : <em className="is-unavailable">变化待统计</em>}<small>{formatNumber(topic.evidenceCount)}条证据</small><Icon name="arrow" /></button></li>)}</ol> : <EmptyState kind="analysis" />}</Panel>
+      <Panel title="负面问题变化" caption="点击数据点查看相关内容" className="trend-panel"><div className="trend-panel__topline"><div className="legend" aria-label="图例"><span><i className="legend__risk" />负面相关量</span></div></div><TrendChart points={data.sentimentTrend} onDrill={drillTrend} /><div className="metric-ribbon"><div><span>负面内容</span><strong>{formatNumber(data.metrics.negativeCount)}</strong></div><div><span>负面占比</span><strong>{formatPercent(data.metrics.negativeRatio)}</strong></div><div><span>帖子</span><strong>{formatNumber(data.metrics.postCount)}</strong></div><div><span>评论</span><strong>{formatNumber(data.metrics.commentCount)}</strong></div></div></Panel>
+      <Panel title="问题热榜" caption="点击问题联动右侧原话" className="rising-topics">{data.risingTopics.length ? <><div className="topic-ranking-head" aria-hidden="true"><span>排名</span><span>问题</span><span>较上期</span><span>影响帖子</span><span>评论</span><span /></div><ol>{[...data.risingTopics].sort((left, right) => right.evidenceCount - left.evidenceCount).slice(0, 10).map((topic, index) => <li key={topic.topicId}><button type="button" className={topic.topicId === selectedTopicId ? "is-active" : ""} aria-pressed={topic.topicId === selectedTopicId} onClick={() => selectTopic(topic.topicId)}><span>{index + 1}</span><b>{topic.topicName}</b><em className={topic.changeRatio === null ? "is-unavailable" : ""}>{topic.changeRatio === null ? "-" : formatPercent(topic.changeRatio)}</em><small className={topic.affectedPostCount === null ? "is-unavailable" : ""}>{topic.affectedPostCount === null ? "-" : formatNumber(topic.affectedPostCount)}</small><small className={topic.commentCount === null ? "is-unavailable" : ""}>{topic.commentCount === null ? "-" : formatNumber(topic.commentCount)}</small><Icon name="arrow" /></button></li>)}</ol></> : <EmptyState kind="analysis" />}</Panel>
       <EvidencePanel defaultItems={data.highRiskContents} topicId={selectedTopic?.topicId ?? null} topicName={selectedTopic?.topicName ?? null} filters={overviewFilters} />
       <CategoryComparison data={data} selected={categoryIds} onToggle={toggleCategory} />
       <SentimentComposition data={data} />

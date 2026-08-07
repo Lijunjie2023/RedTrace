@@ -16,6 +16,7 @@ import {
 } from "@readtrace/contracts";
 import type { BrandCreateInput, CollectionRunPage, DataRepository, ListOptions, OptionalPatch, Page } from "./types.js";
 import { RepositoryError, dataNotReady } from "./types.js";
+import { completeSentimentTrend, isWithinDateRange, overviewDateBuckets, shanghaiDate } from "./overview-trend.js";
 
 interface Manifest {
   fixtureVersion: string;
@@ -105,6 +106,7 @@ export class MockRepository implements DataRepository {
 
   async getOverview(options: ListOptions): Promise<OverviewData> {
     rejectUnsupportedOptions(options, ["from", "to", "brandIds", "categoryIds"]);
+    const requestedTrendBuckets = overviewDateBuckets(options);
     const contents = this.contents.filter((item) => this.matchesContent(item, options));
     const { categoryIds: _ignoredCategoryIds, ...categoryFacetOptions } = options;
     const categoryFacetContents = this.contents.filter((item) => this.matchesContent(item, categoryFacetOptions));
@@ -119,11 +121,11 @@ export class MockRepository implements DataRepository {
     const brands = new Map<string, { contentCount: number; negativeCount: number }>();
     const categories = new Map<string, number>();
     const problems = new Map<string, number>();
-    const topics = new Map<string, number>();
+    const topics = new Map<string, { evidenceCount: number; affectedPostIds: Set<string>; commentCount: number }>();
     for (const item of contents) {
       const sentiment = item.effectiveAnalysis.sentiment.toLowerCase() as "positive" | "neutral" | "negative" | "unknown";
       if (item.publishedAt) {
-        const bucket = item.publishedAt.slice(0, 10);
+        const bucket = shanghaiDate(item.publishedAt);
         const counts = trend.get(bucket) ?? { positive: 0, neutral: 0, negative: 0, unknown: 0 };
         counts[sentiment] += 1;
         trend.set(bucket, counts);
@@ -136,7 +138,13 @@ export class MockRepository implements DataRepository {
       }
       if (sentiment === "negative") {
         for (const id of item.effectiveAnalysis.problemTypeIds) problems.set(id, (problems.get(id) ?? 0) + 1);
-        for (const id of item.effectiveAnalysis.topicIds) topics.set(id, (topics.get(id) ?? 0) + 1);
+        for (const id of item.effectiveAnalysis.topicIds) {
+          const counts = topics.get(id) ?? { evidenceCount: 0, affectedPostIds: new Set<string>(), commentCount: 0 };
+          counts.evidenceCount += 1;
+          counts.affectedPostIds.add(item.postId);
+          if (item.contentType === "COMMENT") counts.commentCount += 1;
+          topics.set(id, counts);
+        }
       }
     }
     for (const item of categoryFacetContents) {
@@ -151,15 +159,20 @@ export class MockRepository implements DataRepository {
         negativeCount,
         negativeRatio: contents.length === 0 ? 0 : negativeCount / contents.length
       },
-      sentimentTrend: [...trend].sort(([left], [right]) => left.localeCompare(right)).map(([bucket, counts]) => ({ bucket, ...counts })),
+      sentimentTrend: completeSentimentTrend(
+        [...trend].sort(([left], [right]) => left.localeCompare(right)).map(([bucket, counts]) => ({ bucket, ...counts })),
+        requestedTrendBuckets
+      ),
       brandRanking: [...brands].map(([brandId, counts]) => ({ brandId, brandName: brandNames.get(brandId) ?? brandId, ...counts })),
       categoryRanking: [...categories].map(([categoryId, contentCount]) => ({ categoryId, categoryName: categoryNames.get(categoryId) ?? categoryId, contentCount })),
       problemTypeRanking: [...problems].map(([problemTypeId, contentCount]) => ({ problemTypeId, problemTypeName: problemNames.get(problemTypeId) ?? problemTypeId, contentCount })),
-      risingTopics: [...topics].map(([topicId, evidenceCount]) => ({
+      risingTopics: [...topics].map(([topicId, counts]) => ({
         topicId,
         topicName: this.topics.find((topic) => topic.id === topicId)?.name ?? topicId,
         changeRatio: null,
-        evidenceCount
+        evidenceCount: counts.evidenceCount,
+        affectedPostCount: counts.affectedPostIds.size,
+        commentCount: counts.commentCount
       })),
       highRiskContents: contents.filter((item) => item.effectiveAnalysis.riskLevel === "HIGH_RISK"),
       collectionHealth: this.overview.collectionHealth,
@@ -175,8 +188,7 @@ export class MockRepository implements DataRepository {
     const scopePublishedAt = item.contentType === "COMMENT"
       ? this.contents.find((candidate) => candidate.contentType === "POST" && candidate.id === item.postId)?.publishedAt ?? null
       : item.publishedAt;
-    if (options.from && (!scopePublishedAt || scopePublishedAt < options.from)) return false;
-    if (options.to && (!scopePublishedAt || scopePublishedAt > options.to)) return false;
+    if (!isWithinDateRange(scopePublishedAt, options)) return false;
     if (options.brandIds && !options.brandIds.some((brandId) => item.brandIds.includes(brandId))) return false;
     if (options.categoryIds && (!item.effectiveAnalysis.categoryId || !options.categoryIds.includes(item.effectiveAnalysis.categoryId))) return false;
     return true;
@@ -229,8 +241,7 @@ export class MockRepository implements DataRepository {
     const keyword = options.keyword?.toLowerCase();
     const items = this.contents.filter((item) => {
       if (options.contentType && item.contentType !== options.contentType) return false;
-      if (options.from && (!item.publishedAt || item.publishedAt < options.from)) return false;
-      if (options.to && (!item.publishedAt || item.publishedAt > options.to)) return false;
+      if (!isWithinDateRange(item.publishedAt, options)) return false;
       if (options.brandIds && !options.brandIds.some((brandId) => item.brandIds.includes(brandId))) return false;
       if (options.sentiments && !options.sentiments.includes(item.effectiveAnalysis.sentiment)) return false;
       if (options.categoryIds && (!item.effectiveAnalysis.categoryId || !options.categoryIds.includes(item.effectiveAnalysis.categoryId))) return false;
@@ -327,8 +338,7 @@ export class MockRepository implements DataRepository {
       if (options.status && task.status !== options.status) return false;
       if (options.statuses && !options.statuses.includes(task.status)) return false;
       if (options.brandIds && !options.brandIds.includes(task.brandId)) return false;
-      if (options.from && (!task.startedAt || task.startedAt < options.from)) return false;
-      if (options.to && (!task.startedAt || task.startedAt > options.to)) return false;
+      if (!isWithinDateRange(task.startedAt, options)) return false;
       return true;
     });
     const result = paginate(structuredClone(items), options);
