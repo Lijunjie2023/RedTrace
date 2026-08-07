@@ -13,7 +13,7 @@ import type {
   ServiceCredentialSummary
 } from "@readtrace/contracts";
 import { createCredentialCrypto, ServiceCredentialRepository } from "../../../../src/credentials/index.js";
-import { CollectionTaskRepository } from "../../../../src/db/persistence/index.js";
+import { CollectionTaskRepository, parsePlatformDate } from "../../../../src/db/persistence/index.js";
 import { PersistenceError } from "../../../../src/db/persistence/errors.js";
 import { runCollectionTask } from "../../../../src/collection/run.js";
 import type { BrandCreateInput, CollectionRunPage, DataRepository, ListOptions, OptionalPatch, Page } from "./types.js";
@@ -833,6 +833,7 @@ export class MysqlRepository implements DataRepository {
                   p.title AS post_title, p.description AS post_description, p.author_nickname AS post_author,
                   p.published_at AS post_published_at, ps.liked_count AS post_liked_count,
                   parent.content AS parent_content, parent.author_nickname AS parent_author,
+                  parent.published_text AS parent_published_text,
                   pcs.liked_count AS parent_liked_count,
                   GROUP_CONCAT(DISTINCT bpm.brand_id ORDER BY bpm.brand_id) AS brand_ids
            FROM comments c INNER JOIN posts p ON p.id = c.post_id
@@ -844,7 +845,7 @@ export class MysqlRepository implements DataRepository {
            GROUP BY c.id, c.post_id, c.parent_comment_id, c.content, c.author_nickname, c.published_text,
                     c.first_collected_at, c.last_collected_at, p.source_url, s.liked_count,
                     p.title, p.description, p.author_nickname, p.published_at, ps.liked_count,
-                    parent.content, parent.author_nickname, pcs.liked_count`, [contentId]);
+                    parent.content, parent.author_nickname, parent.published_text, pcs.liked_count`, [contentId]);
     const detail = detailRows[0];
     if (!detail) throw new RepositoryError("NOT_FOUND", 404, false, "内容不存在。");
     const analysis = await this.loadResolvedAnalysis(contentType, contentId);
@@ -864,7 +865,7 @@ export class MysqlRepository implements DataRepository {
         context.push({
           contentType: "COMMENT", contentId: String(detail.parent_comment_id), evidenceOrigin: "ORIGINAL",
           excerpt: detail.parent_content?.slice(0, 500) ?? null,
-          authorDisplayName: detail.parent_author ?? null, publishedAt: null,
+          authorDisplayName: detail.parent_author ?? null, publishedAt: iso(parsePlatformDate(detail.parent_published_text)),
           likedCount: detail.parent_liked_count === null ? null : Number(detail.parent_liked_count),
           sourceUrl, canOpenOriginal: true
         });
@@ -898,7 +899,7 @@ export class MysqlRepository implements DataRepository {
     return {
       id: String(row.id), contentType: "COMMENT", postId: String(row.post_id), title: null,
       excerpt: row.content?.slice(0, 240) ?? null, authorDisplayName: row.author_nickname ?? null,
-      publishedAt: null, likedCount: row.liked_count === null ? null : Number(row.liked_count),
+      publishedAt: iso(parsePlatformDate(row.published_text)), likedCount: row.liked_count === null ? null : Number(row.liked_count),
       collectedCount: null, commentCount: null, sourceUrl,
       brandIds: row.brand_ids ? String(row.brand_ids).split(",") : [], effectiveAnalysis: analysis ?? unavailableAnalysis(),
       evidenceOrigin: "ORIGINAL", canOpenOriginal: true, firstCollectedAt: iso(row.first_collected_at),

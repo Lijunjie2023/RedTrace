@@ -8,6 +8,13 @@ async function source(filePath: string): Promise<string> {
   return readFile(path.resolve(filePath), "utf8");
 }
 
+test("评论列表和评论上下文返回平台发布时间", async () => {
+  const repository = await source("apps/api/src/repositories/mysql.ts");
+  assert.match(repository, /publishedAt: iso\(parsePlatformDate\(row\.published_text\)\)/);
+  assert.match(repository, /parent\.published_text AS parent_published_text/);
+  assert.match(repository, /publishedAt: iso\(parsePlatformDate\(detail\.parent_published_text\)\)/);
+});
+
 test("前后端统一使用v1采集任务路由", async () => {
   const [server, client] = await Promise.all([
     source("apps/api/src/server.ts"),

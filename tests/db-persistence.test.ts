@@ -9,9 +9,19 @@ import {
   PersistenceError,
   mapProbeComment,
   mapProbePost,
+  parsePlatformDate,
   serializeSanitizedPayload,
   type PersistPostInput
 } from "../src/db/persistence/index.js";
+
+test("平台发布时间支持秒级、毫秒级时间戳和标准日期", () => {
+  assert.equal(parsePlatformDate("1722470400")?.toISOString(), "2024-08-01T00:00:00.000Z");
+  assert.equal(parsePlatformDate("1722470400000")?.toISOString(), "2024-08-01T00:00:00.000Z");
+  assert.equal(parsePlatformDate("2024-08-01T08:00:00+08:00")?.toISOString(), "2024-08-01T00:00:00.000Z");
+  assert.equal(parsePlatformDate("17224704000"), null);
+  assert.equal(parsePlatformDate("昨天"), null);
+  assert.equal(parsePlatformDate(null), null);
+});
 
 interface SqlCall {
   sql: string;

@@ -2,11 +2,12 @@ import type { Comment, Post } from "../../xhs-probe/types.js";
 import { PersistenceError } from "./errors.js";
 import type { BrandMatchInput, MappedComment, MappedPost, PersistCommentInput } from "./types.js";
 
-function absoluteDate(value: string | number | null): Date | null {
-  if (value === null) return null;
+export function parsePlatformDate(value: string | number | Date | null | undefined): Date | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (value === null || value === undefined) return null;
   let milliseconds: number;
   if (typeof value === "number") milliseconds = value < 100_000_000_000 ? value * 1_000 : value;
-  else if (/^\d{10,13}$/.test(value)) milliseconds = value.length === 10 ? Number(value) * 1_000 : Number(value);
+  else if (/^(?:\d{10}|\d{13})$/.test(value)) milliseconds = value.length === 10 ? Number(value) * 1_000 : Number(value);
   else milliseconds = Date.parse(value);
   if (!Number.isFinite(milliseconds)) return null;
   const date = new Date(milliseconds);
@@ -27,8 +28,8 @@ export function mapProbePost(post: Post): MappedPost {
     description: post.description,
     authorNickname: post.author.nickname,
     ipLocation: post.ipLocation,
-    publishedAt: absoluteDate(post.time),
-    platformUpdatedAt: absoluteDate(post.lastUpdateTime),
+    publishedAt: parsePlatformDate(post.time),
+    platformUpdatedAt: parsePlatformDate(post.lastUpdateTime),
     displayedTime: post.displayedTime,
     tags: post.tags,
     imageUrls: post.imageUrls,

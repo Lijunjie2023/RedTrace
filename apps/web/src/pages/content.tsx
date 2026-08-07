@@ -72,7 +72,7 @@ export function ContentPage(): ReactNode {
 
   return (
     <>
-      <div className="content-toolbar"><div><div className="segmented content-tabs" aria-label="内容类型"><button className={contentType === "POST" ? "is-active" : ""} type="button" onClick={() => setType("POST")}>帖子库</button><button className={contentType === "COMMENT" ? "is-active" : ""} type="button" onClick={() => setType("COMMENT")}>评论库</button></div>{contentType === "COMMENT" ? <small>评论没有可验证的发布时间，日期筛选不适用。</small> : null}</div><span>共{resource.data.pagination.totalItems}条{contentLabel}</span></div>
+      <div className="content-toolbar"><div><div className="segmented content-tabs" aria-label="内容类型"><button className={contentType === "POST" ? "is-active" : ""} type="button" onClick={() => setType("POST")}>帖子库</button><button className={contentType === "COMMENT" ? "is-active" : ""} type="button" onClick={() => setType("COMMENT")}>评论库</button></div>{contentType === "COMMENT" ? <small>评论发布时间来自平台；早期数据缺失时显示“暂无”。</small> : null}</div><span>共{resource.data.pagination.totalItems}条{contentLabel}</span></div>
       <FilterBar search={search} setSearch={setSearch} showDate={contentType !== "COMMENT"} sticky />
       {resource.error ? <ErrorNotice error={resource.error} retry={resource.retry} compact /> : null}
       {resource.data.items.length === 0 ? <div className="empty-state"><span aria-hidden="true">⌁</span><h3>当前筛选没有{contentLabel}</h3><p>已保留内容类型，可以调整其他条件或清除筛选。</p><button className="button button--quiet" type="button" onClick={() => setSearch(new URLSearchParams({ contentType, page: "1" }))}>清除其他筛选</button></div> : (
