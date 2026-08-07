@@ -1120,7 +1120,11 @@ export class MysqlRepository implements DataRepository {
       throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, true, "采集任务暂时无法创建。");
     }
     void runCollectionTask({ pool: this.pool, task: created, justOneApiToken: token }).catch(async () => {
-      await tasks.finishApiTask(created.taskId, "failed", "collection_runner_failed").catch(() => undefined);
+      await tasks.failApiTask(created.taskId, "collection_runner_failed").catch(async () => {
+        if (await tasks.shouldStop(created.taskId).catch(() => false)) {
+          await tasks.finishStopped(created.taskId).catch(() => undefined);
+        }
+      });
     });
     return await this.getCollectionTask(String(created.taskId));
   }
@@ -1277,6 +1281,7 @@ export async function createMysqlRepository(): Promise<MysqlRepository> {
     const context = await createDatabaseContext();
     pool = context.pool;
     await pool.query("SELECT 1");
+    await new CollectionTaskRepository(pool).reconcileAbandonedApiTasks();
     return new MysqlRepository(pool);
   } catch {
     if (pool) await pool.end().catch(() => undefined);

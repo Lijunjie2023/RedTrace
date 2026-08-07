@@ -23,6 +23,21 @@ function positiveId(value: number, code: string): number {
 export class CollectionTaskRepository {
   constructor(private readonly pool: Pool) {}
 
+  async reconcileAbandonedApiTasks(): Promise<number> {
+    const [result] = await this.pool.execute<ResultSetHeader>(
+      `UPDATE collection_tasks
+       SET succeeded_post_count = stored_post_count,
+           failed_post_count = failed_count,
+           error_type = CASE WHEN status = 'stopping' THEN NULL ELSE 'collection_process_restarted' END,
+           error_summary = CASE WHEN status = 'stopping' THEN NULL ELSE '采集服务重启，原任务无法继续执行。' END,
+           finished_at = CURRENT_TIMESTAMP(3),
+           status = CASE WHEN status = 'stopping' THEN 'stopped' ELSE 'failed' END
+       WHERE status IN ('queued', 'running', 'stopping')
+         AND keyword IS NOT NULL AND requested_note_limit IS NOT NULL`
+    );
+    return result.affectedRows;
+  }
+
   async createTask(input: CreateTaskInput): Promise<number> {
     const [result] = await this.pool.execute<ResultSetHeader>(
       `INSERT INTO collection_tasks (data_source_id, brand_id, trigger_type, status)
@@ -176,6 +191,19 @@ export class CollectionTaskRepository {
     if (result.affectedRows === 1) return;
     if (await this.shouldStop(taskId)) await this.finishStopped(taskId);
     else throw new PersistenceError("task_state_conflict", "task_not_running");
+  }
+
+  async failApiTask(taskId: number, errorType: string): Promise<void> {
+    const safeErrorType = /^[a-z0-9_]{1,64}$/.test(errorType) ? errorType : "collection_processing_failed";
+    const [result] = await this.pool.execute<ResultSetHeader>(
+      `UPDATE collection_tasks
+       SET status = 'failed', succeeded_post_count = stored_post_count,
+           failed_post_count = failed_count, error_type = ?,
+           error_summary = '采集任务未能完整处理。', finished_at = CURRENT_TIMESTAMP(3)
+       WHERE id = ? AND status IN ('queued', 'running')`,
+      [safeErrorType, positiveId(taskId, "task_id_invalid")]
+    );
+    if (result.affectedRows !== 1) throw new PersistenceError("task_state_conflict", "task_not_failable");
   }
 
   async finishStopped(taskId: number): Promise<void> {

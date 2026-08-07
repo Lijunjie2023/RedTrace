@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import type { Pool } from "mysql2/promise";
+import { collectCommentPages, readCommentPagination } from "../src/collection/run.js";
 import { CredentialCrypto } from "../src/credentials/crypto.js";
+import { CollectionTaskRepository } from "../src/db/persistence/task-repository.js";
 import {
   CollectionCredentialInputSchema,
   CollectionRunCreateInputSchema,
@@ -81,4 +84,82 @@ test("前端提供API采集入口、凭证状态、开始停止和六项进度",
   }
   assert.match(client, /saveServiceCredential/);
   assert.match(client, /stopCollection/);
+});
+
+test("评论采集按游标分页、去重并在完整结束时返回全部评论", async () => {
+  const requestedCursors: Array<string | null> = [];
+  const result = await collectCommentPages({
+    noteId: "note-1",
+    fetchPage: async (cursor) => {
+      requestedCursors.push(cursor);
+      return cursor === null
+        ? { code: 0, data: { comments: [{ id: "comment-1", content: "第一页" }], has_more: true, cursor: "cursor-2" } }
+        : { code: 0, data: { comments: [{ id: "comment-1", content: "重复" }, { id: "comment-2", content: "第二页" }], has_more: false, cursor: null } };
+    }
+  });
+
+  assert.deepEqual(requestedCursors, [null, "cursor-2"]);
+  assert.deepEqual(result.comments.map((comment) => comment.commentId), ["comment-1", "comment-2"]);
+  assert.equal(result.pageCount, 2);
+  assert.equal(result.truncated, false);
+  assert.deepEqual(readCommentPagination({ has_more: true, cursor: " next " }), { hasMore: true, cursor: "next" });
+});
+
+test("评论分页遇到缺失游标或页数上限时明确标记截断", async () => {
+  const missingCursor = await collectCommentPages({
+    noteId: "note-1",
+    fetchPage: async () => ({ code: 0, data: { comments: [{ id: "comment-1" }], has_more: true } })
+  });
+  assert.equal(missingCursor.truncated, true);
+  assert.equal(missingCursor.pageCount, 1);
+
+  const pageLimited = await collectCommentPages({
+    noteId: "note-1",
+    maxPages: 1,
+    fetchPage: async () => ({ code: 0, data: { comments: [{ id: "comment-1" }], has_more: true, cursor: "cursor-2" } })
+  });
+  assert.equal(pageLimited.truncated, true);
+  assert.equal(pageLimited.pageCount, 1);
+});
+
+test("评论分页在单页请求结束后收到停止信号就不再请求下一页", async () => {
+  let fetchCount = 0;
+  let stopCheckCount = 0;
+  const result = await collectCommentPages({
+    noteId: "note-1",
+    fetchPage: async () => {
+      fetchCount += 1;
+      return { code: 0, data: { comments: [{ id: "comment-1" }], has_more: true, cursor: "cursor-2" } };
+    },
+    shouldStop: async () => {
+      stopCheckCount += 1;
+      return true;
+    }
+  });
+
+  assert.equal(fetchCount, 1);
+  assert.equal(stopCheckCount, 1);
+  assert.equal(result.stopped, true);
+  assert.equal(result.truncated, false);
+  assert.deepEqual(result.comments.map((comment) => comment.commentId), ["comment-1"]);
+});
+
+test("遗留任务只收敛API控制台任务且启动前失败可以结束queued任务", async () => {
+  const calls: Array<{ sql: string; params: unknown[] }> = [];
+  const pool = {
+    execute: async (sql: string, params: unknown[] = []) => {
+      calls.push({ sql, params });
+      return [{ affectedRows: 1 }, []];
+    }
+  } as unknown as Pool;
+  const tasks = new CollectionTaskRepository(pool);
+
+  assert.equal(await tasks.reconcileAbandonedApiTasks(), 1);
+  assert.match(calls[0]?.sql ?? "", /status IN \('queued', 'running', 'stopping'\)/);
+  assert.match(calls[0]?.sql ?? "", /keyword IS NOT NULL/);
+  assert.match(calls[0]?.sql ?? "", /requested_note_limit IS NOT NULL/);
+
+  await tasks.failApiTask(42, "collection_runner_failed");
+  assert.match(calls[1]?.sql ?? "", /status IN \('queued', 'running'\)/);
+  assert.deepEqual(calls[1]?.params, ["collection_runner_failed", 42]);
 });
