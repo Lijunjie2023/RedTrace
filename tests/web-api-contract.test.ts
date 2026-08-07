@@ -52,14 +52,21 @@ test("Web保留证据深链路由并在主导航展示内容明细", async () =>
 });
 
 test("常见桌面宽度保持问题变化、热榜和代表性原话三栏", async () => {
-  const styles = await source("apps/web/src/styles.css");
-  assert.match(styles, /\.trend-panel \{ grid-column: span 6;/);
-  assert.match(styles, /\.rising-topics, \.risk-evidence \{ grid-column: span 3;/);
+  const [overview, styles] = await Promise.all([
+    source("apps/web/src/pages/overview.tsx"),
+    source("apps/web/src/styles.css")
+  ]);
+
+  assert.match(overview, /className="overview-primary-row"[\s\S]*className="trend-panel"[\s\S]*className="rising-topics"[\s\S]*<EvidencePanel/);
+  assert.match(styles, /\.overview-primary-row \{[^}]*grid-template-columns:\s*minmax\(0,\s*4fr\)\s+repeat\(2,\s*minmax\(0,\s*3fr\)\)/);
+  assert.match(styles, /\.overview-primary-row > \.panel \{[^}]*min-width:\s*0/);
+  assert.doesNotMatch(styles, /\.trend-panel \{[^}]*grid-column:\s*span/);
+  assert.doesNotMatch(styles, /\.rising-topics, \.risk-evidence \{[^}]*grid-column:\s*span/);
 
   const desktopCollapseBlock = styles.match(/@media \(max-width: 1439px\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
   assert.doesNotMatch(desktopCollapseBlock, /\.trend-panel|\.rising-topics|\.risk-evidence/);
 
-  assert.doesNotMatch(styles, /@media \(min-width: 1024px\) and \(max-width: 1199px\)/);
+  assert.doesNotMatch(styles, /@media \(min-width: 1024px\) and \(max-width: 1439px\) \{[\s\S]*?\.trend-panel/);
 });
 
 test("首页主三栏等高且趋势内容填满左栏", async () => {

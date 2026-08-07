@@ -235,13 +235,14 @@ input::placeholder { color: var(--color-ink-tertiary); }
 .is-refreshing { transition: border-color var(--motion-base); }
 
 .overview-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--space-3); font: var(--type-dashboard-body)/var(--line-dashboard-body) var(--font-body); }
+.overview-primary-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 3fr) minmax(0, 3fr); gap: var(--space-3); min-width: 0; }
+.overview-primary-row > .panel { min-width: 0; }
 .refresh-status { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); padding: 0 var(--space-3); color: var(--color-ink-secondary); background: var(--color-surface); border: 0.0625rem solid var(--color-rule); font-size: var(--type-table); }
 .refresh-status span { width: 0.5rem; height: 0.5rem; background: var(--color-positive); border-radius: var(--radius-pill); animation: pulse 900ms ease-in-out infinite alternate; }
 .overview-grid > .panel:nth-child(1) { animation-delay: 30ms; }
 .overview-grid > .panel:nth-child(2) { animation-delay: 70ms; }
 .overview-grid > .panel:nth-child(3) { animation-delay: 110ms; }
-.trend-panel { grid-column: span 6; display: flex; flex-direction: column; border-top-color: var(--color-risk); }
-.rising-topics, .risk-evidence { grid-column: span 3; }
+.trend-panel { display: flex; flex-direction: column; border-top-color: var(--color-risk); }
 .trend-panel, .rising-topics, .risk-evidence { height: var(--overview-primary-panel-height); min-height: 0; overflow: hidden; }
 .rising-topics, .risk-evidence { display: flex; flex-direction: column; }
 .compact-ranking { grid-column: span 4; }
@@ -527,18 +528,13 @@ td strong, td small { display: block; }
   .correction-panel { grid-column: 1 / -1; position: relative; top: auto; }
 }
 
-@media (min-width: 1024px) and (max-width: 1439px) {
-  .trend-panel { grid-column: span 4; }
-  .rising-topics { grid-column: span 5; }
-  .risk-evidence { grid-column: span 3; }
-}
-
 @media (max-width: 1365px) {
   :root { --type-dashboard-title: 1.0625rem; --line-dashboard-title: 1.5rem; }
 }
 
 @media (max-width: 1023px) {
   .topbar__context span, .topbar__meta > span:first-child { display: none; }
+  .overview-primary-row { grid-template-columns: minmax(0, 1fr); }
   .trend-panel, .rising-topics, .risk-evidence { grid-column: 1 / -1; }
   .trend-panel, .rising-topics, .risk-evidence { height: auto; overflow: visible; }
   .trend-panel .trend-visual { min-height: 15rem; }
