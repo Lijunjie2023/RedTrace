@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type ContentSummary } from "../api/client";
 import { DataModeStamp, ErrorNotice, ExportButton, FilterBar, OriginalLink, StatusBadge } from "../components/common";
@@ -18,18 +18,17 @@ export function ContentPage(): ReactNode {
       value.delete("to");
     }
     if (!value.has("page")) value.set("page", "1");
-    if (!value.has("pageSize")) value.set("pageSize", "20");
+    value.set("pageSize", "10");
     return value;
   }, [contentType, search]);
   const key = requestSearch.toString();
   const resource = useResource(useMemo(() => () => api.getContents(new URLSearchParams(key)), [key]), [key]);
-  const [selected, setSelected] = useState<ContentSummary | null>(null);
-
   useEffect(() => {
     const commentHasDate = contentType === "COMMENT" && (search.has("from") || search.has("to"));
-    if (search.get("contentType") === contentType && !commentHasDate) return;
+    if (search.get("contentType") === contentType && search.get("pageSize") === "10" && !commentHasDate) return;
     const next = new URLSearchParams(search);
     next.set("contentType", contentType);
+    next.set("pageSize", "10");
     if (contentType === "COMMENT") {
       next.delete("from");
       next.delete("to");
@@ -37,14 +36,10 @@ export function ContentPage(): ReactNode {
     setSearch(next, { replace: true });
   }, [contentType, search, setSearch]);
 
-  useEffect(() => {
-    if (resource.data?.items.length && !resource.data.items.some((item) => item.id === selected?.id && item.contentType === selected.contentType)) setSelected(resource.data.items[0]);
-    if (resource.data?.items.length === 0) setSelected(null);
-  }, [resource.data, selected?.id]);
-
   const setType = (value: "POST" | "COMMENT") => {
     const next = new URLSearchParams(search);
     next.set("contentType", value);
+    next.set("pageSize", "10");
     if (value === "COMMENT") {
       next.delete("from");
       next.delete("to");
@@ -59,22 +54,32 @@ export function ContentPage(): ReactNode {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const visiblePages = (current: number, total: number): Array<number | "ellipsis"> => {
+    if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
+    const pages = new Set([1, total, current - 1, current, current + 1]);
+    const sorted = [...pages].filter((page) => page >= 1 && page <= total).sort((left, right) => left - right);
+    const result: Array<number | "ellipsis"> = [];
+    sorted.forEach((page, index) => {
+      if (index > 0 && page - sorted[index - 1] > 1) result.push("ellipsis");
+      result.push(page);
+    });
+    return result;
+  };
+
   if (resource.loading) return <><PageHeader eyebrow="证据库" title={`${contentLabel}库`} description={`筛选${contentLabel}，核对原文、上下文和有效分析。`} /><SkeletonPage /></>;
   if (!resource.data) return <><PageHeader eyebrow="证据库" title={`${contentLabel}库`} description={`筛选${contentLabel}，核对原文、上下文和有效分析。`} /><ErrorNotice error={resource.error} retry={resource.retry} /></>;
+  const pagination = resource.data.pagination;
 
   return (
     <>
-      <PageHeader eyebrow="证据库" title={`${contentLabel}库`} description={`${contentLabel}筛选条件写入链接，刷新和返回后仍然保留。`} action={<ExportButton filters={requestSearch} />} />
+      <PageHeader eyebrow="证据库" title="内容明细" description="查看已采集的帖子与评论，核对原始内容与分析结果。" action={<ExportButton filters={requestSearch} />} />
+      <div className="content-toolbar"><div><div className="segmented content-tabs" aria-label="内容类型"><button className={contentType === "POST" ? "is-active" : ""} type="button" onClick={() => setType("POST")}>帖子库</button><button className={contentType === "COMMENT" ? "is-active" : ""} type="button" onClick={() => setType("COMMENT")}>评论库</button></div>{contentType === "COMMENT" ? <small>评论没有可验证的发布时间，日期筛选不适用。</small> : null}</div><span>共{resource.data.pagination.totalItems}条{contentLabel}</span></div>
       <FilterBar search={search} setSearch={setSearch} showDate={contentType !== "COMMENT"} />
-      <div className="content-toolbar"><div><div className="segmented" aria-label="内容类型"><button className={contentType === "POST" ? "is-active" : ""} type="button" onClick={() => setType("POST")}>帖子</button><button className={contentType === "COMMENT" ? "is-active" : ""} type="button" onClick={() => setType("COMMENT")}>评论</button></div>{contentType === "COMMENT" ? <small>评论没有可验证的发布时间，日期筛选不适用。</small> : null}</div><span>共{resource.data.pagination.totalItems}条{contentLabel}</span></div>
       {resource.error ? <ErrorNotice error={resource.error} retry={resource.retry} compact /> : null}
       {resource.data.items.length === 0 ? <div className="empty-state"><span aria-hidden="true">⌁</span><h3>当前筛选没有{contentLabel}</h3><p>已保留内容类型，可以调整其他条件或清除筛选。</p><button className="button button--quiet" type="button" onClick={() => setSearch(new URLSearchParams({ contentType, page: "1" }))}>清除其他筛选</button></div> : (
-        <div className={`content-layout ${resource.refreshing ? "is-refreshing" : ""}`}>
-          <section className="content-list" aria-label="内容列表"><DataModeStamp />{resource.data.items.map((item) => <article className={`content-row ${selected?.id === item.id ? "is-active" : ""}`} key={`${item.contentType}-${item.id}`}><button className="content-row__select" type="button" onClick={() => setSelected(item)} aria-label={`预览${item.title ?? "当前内容"}`}><div className="content-row__meta"><span>{enumLabel(item.contentType)}</span><StatusBadge value={item.effectiveAnalysis.riskLevel} /><span>{formatDateTime(item.publishedAt)}</span></div><h2>{item.title ?? (item.contentType === "COMMENT" ? "评论原文" : "无标题帖子")}</h2><p>{item.excerpt ?? "原文内容缺失"}</p><div><span>点赞{formatNumber(item.likedCount)}</span><span>{enumLabel(item.effectiveAnalysis.analysisOrigin)}</span><span>{enumLabel(item.effectiveAnalysis.confidence)}可信度</span></div></button><Link className="content-row__detail" to={`/content/${item.contentType}/${item.id}`}>查看详情与修正</Link></article>)}</section>
-          <aside className="content-preview">{selected ? <><header><span>当前证据</span><h2>{selected.title ?? "原文预览"}</h2></header><p className="content-preview__text">{selected.excerpt ?? "原文内容缺失"}</p><dl><div><dt>情感</dt><dd><StatusBadge value={selected.effectiveAnalysis.sentiment} /></dd></div><div><dt>风险</dt><dd><StatusBadge value={selected.effectiveAnalysis.riskLevel} /></dd></div><div><dt>分析来源</dt><dd>{enumLabel(selected.effectiveAnalysis.analysisOrigin)}</dd></div><div><dt>最后采集</dt><dd>{formatDateTime(selected.lastCollectedAt)}</dd></div></dl><div className="preview-actions"><Link className="button button--primary" to={`/content/${selected.contentType}/${selected.id}`}>查看详情与修正</Link><OriginalLink sourceUrl={selected.sourceUrl} canOpen={selected.canOpenOriginal} /></div></> : null}</aside>
-        </div>
+        <section className={`content-list ${resource.refreshing ? "is-refreshing" : ""}`} aria-label={`${contentLabel}列表`}><DataModeStamp /><div className="table-scroll"><table className="content-table"><thead><tr><th className="content-table__content">内容</th><th className="content-table__analysis">情感 / 风险</th><th className="content-table__engagement">互动</th><th className="content-table__published">发布时间</th><th className="content-table__actions">操作</th></tr></thead><tbody>{resource.data.items.map((item: ContentSummary) => <tr key={`${item.contentType}-${item.id}`}><td className="content-table__content"><strong>{item.title ?? (item.contentType === "COMMENT" ? "评论原文" : "无标题帖子")}</strong><p>{item.excerpt ?? "原文内容缺失"}</p><small>{item.authorDisplayName ?? "作者信息缺失"} · {enumLabel(item.effectiveAnalysis.analysisOrigin)}</small></td><td className="content-table__analysis"><div><StatusBadge value={item.effectiveAnalysis.sentiment} /><StatusBadge value={item.effectiveAnalysis.riskLevel} /></div></td><td className="content-table__engagement"><span>点赞 {formatNumber(item.likedCount)}</span><span>评论 {formatNumber(item.commentCount)}</span></td><td className="content-table__published"><time>{formatDateTime(item.publishedAt)}</time></td><td className="content-table__actions"><div><Link className="text-link" to={`/content/${item.contentType}/${item.id}`}>查看详情</Link><OriginalLink sourceUrl={item.sourceUrl} canOpen={item.canOpenOriginal} /></div></td></tr>)}</tbody></table></div></section>
       )}
-      {resource.data.pagination.totalPages > 0 ? <nav className="pagination" aria-label="内容分页"><button className="button button--quiet" type="button" disabled={resource.data.pagination.page <= 1} onClick={() => setPage(resource.data!.pagination.page - 1)}>上一页</button><span>第{resource.data.pagination.page}页，共{resource.data.pagination.totalPages}页 · {resource.data.pagination.totalItems}条</span><button className="button button--quiet" type="button" disabled={resource.data.pagination.page >= resource.data.pagination.totalPages} onClick={() => setPage(resource.data!.pagination.page + 1)}>下一页</button></nav> : null}
+      {pagination.totalPages > 0 ? <nav className="pagination content-pagination" aria-label="内容分页"><span>共{pagination.totalItems}条，每页10条</span><div><button className="button button--quiet" type="button" disabled={pagination.page <= 1} onClick={() => setPage(pagination.page - 1)}>上一页</button>{visiblePages(pagination.page, pagination.totalPages).map((page, index) => page === "ellipsis" ? <span className="pagination__ellipsis" aria-hidden="true" key={`ellipsis-${index}`}>…</span> : <button className={`pagination__page ${page === pagination.page ? "is-active" : ""}`} type="button" aria-current={page === pagination.page ? "page" : undefined} onClick={() => setPage(page)} key={page}>{page}</button>)}<button className="button button--quiet" type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => setPage(pagination.page + 1)}>下一页</button></div></nav> : null}
     </>
   );
 }

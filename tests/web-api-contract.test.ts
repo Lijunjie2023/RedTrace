@@ -26,7 +26,7 @@ test("前后端统一使用v1采集任务路由", async () => {
   assert.doesNotMatch(client, /collectionTasks/);
 });
 
-test("Web保留证据深链路由且只展示四项当前主导航", async () => {
+test("Web保留证据深链路由并在主导航展示内容明细", async () => {
   const [app, shell] = await Promise.all([
     source("apps/web/src/app.tsx"),
     source("apps/web/src/layout/app-shell.tsx")
@@ -45,8 +45,9 @@ test("Web保留证据深链路由且只展示四项当前主导航", async () =>
   for (const route of routes) assert.match(app, new RegExp(`path=\\"${route.replaceAll("/", "\\/")}\\"`));
   assert.match(shell, /const navigation = \[/);
   const navigationBlock = shell.match(/const navigation = \[([\s\S]*?)\] as const/)?.[1] ?? "";
-  assert.equal((navigationBlock.match(/\["\//g) ?? []).length, 4);
-  assert.doesNotMatch(navigationBlock, /\/insights|\/content/);
+  assert.equal((navigationBlock.match(/\["\//g) ?? []).length, 5);
+  assert.doesNotMatch(navigationBlock, /\/insights/);
+  assert.match(navigationBlock, /\/content/);
   assert.match(navigationBlock, /\/data-management/);
 });
 
@@ -155,12 +156,32 @@ test("Web响应式外壳占满视口并避免依赖隐藏溢出掩盖布局问�
   assert.match(styles, /@container sidebar \(min-width: 9rem\)/);
   assert.match(styles, /@container sidebar \(min-width: 10rem\)/);
   assert.match(styles, /\.category-dashboard-grid \{[^}]*repeat\(var\(--category-count\),\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(styles, /\.content-layout \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)\s+minmax\(18rem, 24rem\)/);
+  assert.match(styles, /\.content-table \{[^}]*table-layout:\s*fixed/);
+  assert.match(styles, /\.content-table \{ min-width:\s*62rem/);
   assert.match(styles, /\.trend-visual \{[^}]*overflow:\s*hidden/);
   assert.match(styles, /\.trend-visual svg \{[^}]*min-width:\s*0/);
   assert.match(styles, /\.trend-axis \{[^}]*min-width:\s*0/);
   assert.doesNotMatch(styles, /trend-scroll-hint/);
   assert.match(mobileBlock, /\.simulation-banner span \{ display: none; \}/);
+});
+
+test("内容明细使用帖子评论双列表并固定每页十条", async () => {
+  const [content, styles] = await Promise.all([
+    source("apps/web/src/pages/content.tsx"),
+    source("apps/web/src/styles.css")
+  ]);
+
+  assert.match(content, /value\.set\("pageSize", "10"\)/);
+  assert.match(content, />帖子库<\/button>/);
+  assert.match(content, />评论库<\/button>/);
+  assert.match(content, /className="content-table"/);
+  assert.match(content, /<th className="content-table__content">内容<\/th>/);
+  assert.match(content, /共\{pagination\.totalItems\}条，每页10条/);
+  assert.match(content, /visiblePages\(pagination\.page, pagination\.totalPages\)/);
+  assert.doesNotMatch(content, /className="content-preview"/);
+  assert.match(styles, /\.content-table__content \{ width:\s*49%; \}/);
+  assert.match(styles, /\.content-table__actions \{ width:\s*12%; \}/);
+  assert.match(styles, /\.sidebar nav a\[href="\/data-management"\] \{ display:\s*none; \}/);
 });
 
 test("模拟fixture明确标识模拟且不包含真实网络链接", async () => {

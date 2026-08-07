@@ -7,6 +7,7 @@ import { formatDateTime } from "../utils/format";
 
 const navigation = [
   ["/overview", "舆情概览", "overview"],
+  ["/content", "内容明细", "content"],
   ["/keywords", "关键词", "keywords"],
   ["/data-management", "数据管理", "database"],
   ["/brands", "监控设置", "settings"]
