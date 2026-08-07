@@ -62,13 +62,32 @@ test("常见桌面宽度保持问题变化、热榜和代表性原话三栏", as
 });
 
 test("首页主三栏等高且趋势内容填满左栏", async () => {
-  const styles = await source("apps/web/src/styles.css");
+  const [overview, styles] = await Promise.all([
+    source("apps/web/src/pages/overview.tsx"),
+    source("apps/web/src/styles.css")
+  ]);
 
   assert.match(styles, /--overview-primary-panel-height:\s*clamp\(/);
   assert.match(styles, /\.trend-panel, \.rising-topics, \.risk-evidence \{[^}]*height:\s*var\(--overview-primary-panel-height\)/);
   assert.match(styles, /\.trend-panel \{[^}]*display:\s*flex[^}]*flex-direction:\s*column/);
   assert.match(styles, /\.trend-panel \.trend-visual \{[^}]*flex:\s*1/);
   assert.match(styles, /\.trend-panel \.trend-visual svg \{[^}]*height:\s*100%/);
+  assert.match(overview, /<path d=\{path\} \/>/);
+  assert.match(styles, /\.trend-series--negative path \{[^}]*fill:\s*none/);
+  assert.doesNotMatch(styles, /\.trend-series--negative path, \.trend-series--negative circle \{[^}]*fill:\s*var\(--color-risk\)/);
+});
+
+test("侧边栏品牌区不再显示RT方框", async () => {
+  const [shell, styles] = await Promise.all([
+    source("apps/web/src/layout/app-shell.tsx"),
+    source("apps/web/src/styles.css")
+  ]);
+
+  assert.match(shell, /className="brandmark"[^>]*><div><strong><b>Red<\/b>Trace<\/strong>/);
+  assert.doesNotMatch(shell, /<span><b>R<\/b>T<\/span>/);
+  assert.doesNotMatch(styles, /\.brandmark > span/);
+  assert.match(styles, /\.brandmark \{[^}]*display:\s*none/);
+  assert.match(styles, /@container sidebar \(min-width:\s*8rem\) \{\s*\.brandmark \{[^}]*display:\s*flex/);
 });
 
 test("问题热榜最多十条降序且表头保持横排", async () => {

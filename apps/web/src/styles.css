@@ -108,9 +108,8 @@ small, .muted { color: var(--color-ink-secondary); }
 .topbar__context { min-width: 0; display: flex; align-items: center; gap: var(--space-3); }
 .topbar__context span { color: var(--color-ink-tertiary); font-size: var(--type-label); }
 .topbar__context strong { padding-left: var(--space-3); border-left: 0.0625rem solid var(--color-rule-strong); font-size: var(--type-table); }
-.brandmark { min-height: 4.75rem; display: flex; align-items: center; gap: var(--space-3); text-decoration: none; }
-.brandmark > span { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border: 0.0625rem solid var(--color-rule-strong); font-family: var(--font-numeric); }
-.brandmark > span b, .brandmark strong b { color: var(--color-risk); }
+.brandmark { min-height: 4.75rem; display: flex; align-items: center; justify-content: center; text-decoration: none; }
+.brandmark strong b { color: var(--color-risk); }
 .brandmark > div { display: grid; gap: var(--space-1); }
 .brandmark strong { font-family: var(--font-display); font-size: var(--type-section); letter-spacing: 0.02em; }
 .brandmark small { color: var(--color-ink-tertiary); font-size: var(--type-mobile-label); }
@@ -134,12 +133,18 @@ small, .muted { color: var(--color-ink-secondary); }
 .sidebar__overview-meta > a:hover, .sidebar__overview-meta > button:hover { color: var(--color-ink-primary); background: var(--color-surface-raised); }
 .sidebar__overview-meta b { position: absolute; width: 0.0625rem; height: 0.0625rem; overflow: hidden; clip: rect(0 0 0 0); }
 .sidebar__mode i { width: var(--space-2); height: var(--space-2); border-radius: var(--radius-pill); background: var(--color-success); }
-.brandmark { justify-content: center; }
 .brandmark > div, .sidebar nav a b, .sidebar__note > div { position: absolute; width: 0.0625rem; height: 0.0625rem; overflow: hidden; clip: rect(0 0 0 0); }
 .sidebar nav a { grid-template-columns: 1fr; justify-items: center; padding: 0; }
 .sidebar__note { left: var(--space-2); right: var(--space-2); justify-content: center; padding-top: var(--space-3); }
 
+@container sidebar (max-width: 7.99rem) {
+  .brandmark { display: none; }
+}
+
 @container sidebar (min-width: 8rem) {
+  .brandmark { display: flex; justify-content: flex-start; }
+  .brandmark > div { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .brandmark small { position: absolute; width: 0.0625rem; height: 0.0625rem; overflow: hidden; clip: rect(0 0 0 0); }
   .sidebar nav a b { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
   .sidebar nav a { grid-template-columns: 1.5rem 1fr; justify-items: stretch; padding: 0 var(--space-3); }
   .sidebar__overview-meta { left: var(--space-4); right: var(--space-4); }
@@ -148,9 +153,7 @@ small, .muted { color: var(--color-ink-secondary); }
 }
 
 @container sidebar (min-width: 9rem) {
-  .brandmark { justify-content: flex-start; }
-  .brandmark > div, .sidebar__note > div { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
-  .brandmark small { position: absolute; width: 0.0625rem; height: 0.0625rem; overflow: hidden; clip: rect(0 0 0 0); }
+  .sidebar__note > div { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
   .sidebar__note { left: var(--space-4); right: var(--space-4); justify-content: flex-start; padding-top: var(--space-4); }
 }
 
@@ -260,7 +263,8 @@ input::placeholder { color: var(--color-ink-tertiary); }
 .trend-series path { fill: none; stroke-width: 2.2; vector-effect: non-scaling-stroke; }
 .trend-series circle { cursor: pointer; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .trend-series circle:focus-visible { outline: none; stroke-width: 5; }
-.trend-series--negative path, .trend-series--negative circle { stroke: var(--color-risk); fill: var(--color-risk); }
+.trend-series--negative path { stroke: var(--color-risk); fill: none; }
+.trend-series--negative .trend-point__marker { stroke: var(--color-risk); fill: var(--color-risk); }
 .trend-series--negative .trend-point__hit { fill: transparent; stroke: transparent; }
 .trend-point__marker { pointer-events: none; }
 .trend-point__hit:focus-visible + .trend-point__marker { stroke-width: 5; }
