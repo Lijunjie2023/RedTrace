@@ -70,6 +70,14 @@ test("管理员接口包含凭证配置、开始采集、停止采集和持久�
   assert.doesNotMatch(runner, /console\.(?:log|error)\([^\n]*(?:token|secret|apiKey|Authorization)/);
 });
 
+test("凭证状态读取不依赖加密主密钥，避免采集页面整页不可用", async () => {
+  const mysqlRepository = await readFile("apps/api/src/repositories/mysql.ts", "utf8");
+  assert.match(
+    mysqlRepository,
+    /listServiceCredentials\(\)[\s\S]*new ServiceCredentialRepository\(this\.pool\)\.listSummaries\(\)/
+  );
+});
+
 test("前端提供API采集入口、凭证状态、开始停止和六项进度", async () => {
   const [app, page, client] = await Promise.all([
     readFile("apps/web/src/app.tsx", "utf8"),

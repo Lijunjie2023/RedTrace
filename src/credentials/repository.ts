@@ -1,5 +1,5 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
-import type { CredentialCrypto } from "./crypto.js";
+import { CredentialConfigError, type CredentialCrypto } from "./crypto.js";
 import {
   CREDENTIAL_KINDS,
   type CredentialKind,
@@ -40,7 +40,7 @@ function missingSummary(kind: CredentialKind): ServiceCredentialSummary {
 export class ServiceCredentialRepository {
   constructor(
     private readonly pool: Pool,
-    private readonly crypto: CredentialCrypto
+    private readonly crypto?: CredentialCrypto
   ) {}
 
   async listSummaries(): Promise<ServiceCredentialSummary[]> {
@@ -63,7 +63,7 @@ export class ServiceCredentialRepository {
 
   async upsert(kind: CredentialKind, secret: string): Promise<ServiceCredentialSummary> {
     if (!secret.trim()) throw new CredentialStorageError();
-    const encrypted = this.crypto.encrypt(secret);
+    const encrypted = this.requireCrypto().encrypt(secret);
     const lastFour = Array.from(secret).slice(-4).join("");
     try {
       await this.pool.execute<ResultSetHeader>(
@@ -85,7 +85,7 @@ export class ServiceCredentialRepository {
   async getSecret(kind: CredentialKind): Promise<string | null> {
     const row = await this.find(kind);
     if (!row) return null;
-    return this.crypto.decrypt({ ciphertext: row.ciphertext, iv: row.iv, authTag: row.authTag });
+    return this.requireCrypto().decrypt({ ciphertext: row.ciphertext, iv: row.iv, authTag: row.authTag });
   }
 
   async delete(kind: CredentialKind): Promise<boolean> {
@@ -104,5 +104,10 @@ export class ServiceCredentialRepository {
       [kind]
     );
     return rows[0] ?? null;
+  }
+
+  private requireCrypto(): CredentialCrypto {
+    if (!this.crypto) throw new CredentialConfigError();
+    return this.crypto;
   }
 }

@@ -1050,7 +1050,7 @@ export class MysqlRepository implements DataRepository {
 
   async listServiceCredentials(): Promise<ServiceCredentialSummary[]> {
     try {
-      return await this.credentialRepository().listSummaries();
+      return await new ServiceCredentialRepository(this.pool).listSummaries();
     } catch (error) {
       if (error instanceof RepositoryError) throw error;
       throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, false, "凭证服务暂时不可用。");
