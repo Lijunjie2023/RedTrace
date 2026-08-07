@@ -174,6 +174,8 @@ test("内容明细使用帖子评论双列表并固定每页十条", async () =>
   assert.match(content, /value\.set\("pageSize", "10"\)/);
   assert.match(content, />帖子库<\/button>/);
   assert.match(content, />评论库<\/button>/);
+  assert.doesNotMatch(content, /<PageHeader/);
+  assert.match(content, /showDate=\{contentType !== "COMMENT"\} sticky/);
   assert.match(content, /className="content-table"/);
   assert.match(content, /<th className="content-table__content">内容<\/th>/);
   assert.match(content, /共\{pagination\.totalItems\}条，每页10条/);
@@ -182,6 +184,7 @@ test("内容明细使用帖子评论双列表并固定每页十条", async () =>
   assert.match(styles, /\.content-table__content \{ width:\s*49%; \}/);
   assert.match(styles, /\.content-table__actions \{ width:\s*12%; \}/);
   assert.match(styles, /\.sidebar nav a\[href="\/data-management"\] \{ display:\s*none; \}/);
+  assert.match(styles, /\.app-shell:not\(\.is-overview\) \.filter-bar\.is-sticky \{ top:\s*var\(--topbar-height\); \}/);
 });
 
 test("模拟fixture明确标识模拟且不包含真实网络链接", async () => {

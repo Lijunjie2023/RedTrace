@@ -1,8 +1,8 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type ContentSummary } from "../api/client";
-import { DataModeStamp, ErrorNotice, ExportButton, FilterBar, OriginalLink, StatusBadge } from "../components/common";
-import { PageHeader, SkeletonPage } from "../components/page";
+import { DataModeStamp, ErrorNotice, FilterBar, OriginalLink, StatusBadge } from "../components/common";
+import { SkeletonPage } from "../components/page";
 import { useResource } from "../hooks/use-resource";
 import { enumLabel, formatDateTime, formatNumber } from "../utils/format";
 
@@ -66,15 +66,14 @@ export function ContentPage(): ReactNode {
     return result;
   };
 
-  if (resource.loading) return <><PageHeader eyebrow="证据库" title={`${contentLabel}库`} description={`筛选${contentLabel}，核对原文、上下文和有效分析。`} /><SkeletonPage /></>;
-  if (!resource.data) return <><PageHeader eyebrow="证据库" title={`${contentLabel}库`} description={`筛选${contentLabel}，核对原文、上下文和有效分析。`} /><ErrorNotice error={resource.error} retry={resource.retry} /></>;
+  if (resource.loading) return <><FilterBar search={search} setSearch={setSearch} showDate={contentType !== "COMMENT"} sticky /><SkeletonPage /></>;
+  if (!resource.data) return <><FilterBar search={search} setSearch={setSearch} showDate={contentType !== "COMMENT"} sticky /><ErrorNotice error={resource.error} retry={resource.retry} /></>;
   const pagination = resource.data.pagination;
 
   return (
     <>
-      <PageHeader eyebrow="证据库" title="内容明细" description="查看已采集的帖子与评论，核对原始内容与分析结果。" action={<ExportButton filters={requestSearch} />} />
       <div className="content-toolbar"><div><div className="segmented content-tabs" aria-label="内容类型"><button className={contentType === "POST" ? "is-active" : ""} type="button" onClick={() => setType("POST")}>帖子库</button><button className={contentType === "COMMENT" ? "is-active" : ""} type="button" onClick={() => setType("COMMENT")}>评论库</button></div>{contentType === "COMMENT" ? <small>评论没有可验证的发布时间，日期筛选不适用。</small> : null}</div><span>共{resource.data.pagination.totalItems}条{contentLabel}</span></div>
-      <FilterBar search={search} setSearch={setSearch} showDate={contentType !== "COMMENT"} />
+      <FilterBar search={search} setSearch={setSearch} showDate={contentType !== "COMMENT"} sticky />
       {resource.error ? <ErrorNotice error={resource.error} retry={resource.retry} compact /> : null}
       {resource.data.items.length === 0 ? <div className="empty-state"><span aria-hidden="true">⌁</span><h3>当前筛选没有{contentLabel}</h3><p>已保留内容类型，可以调整其他条件或清除筛选。</p><button className="button button--quiet" type="button" onClick={() => setSearch(new URLSearchParams({ contentType, page: "1" }))}>清除其他筛选</button></div> : (
         <section className={`content-list ${resource.refreshing ? "is-refreshing" : ""}`} aria-label={`${contentLabel}列表`}><DataModeStamp /><div className="table-scroll"><table className="content-table"><thead><tr><th className="content-table__content">内容</th><th className="content-table__analysis">情感 / 风险</th><th className="content-table__engagement">互动</th><th className="content-table__published">发布时间</th><th className="content-table__actions">操作</th></tr></thead><tbody>{resource.data.items.map((item: ContentSummary) => <tr key={`${item.contentType}-${item.id}`}><td className="content-table__content"><strong>{item.title ?? (item.contentType === "COMMENT" ? "评论原文" : "无标题帖子")}</strong><p>{item.excerpt ?? "原文内容缺失"}</p><small>{item.authorDisplayName ?? "作者信息缺失"} · {enumLabel(item.effectiveAnalysis.analysisOrigin)}</small></td><td className="content-table__analysis"><div><StatusBadge value={item.effectiveAnalysis.sentiment} /><StatusBadge value={item.effectiveAnalysis.riskLevel} /></div></td><td className="content-table__engagement"><span>点赞 {formatNumber(item.likedCount)}</span><span>评论 {formatNumber(item.commentCount)}</span></td><td className="content-table__published"><time>{formatDateTime(item.publishedAt)}</time></td><td className="content-table__actions"><div><Link className="text-link" to={`/content/${item.contentType}/${item.id}`}>查看详情</Link><OriginalLink sourceUrl={item.sourceUrl} canOpen={item.canOpenOriginal} /></div></td></tr>)}</tbody></table></div></section>
