@@ -1,5 +1,11 @@
 import path from "node:path";
 import dotenv from "dotenv";
+import type { Pool } from "mysql2/promise";
+import {
+  CredentialConfigError,
+  ServiceCredentialRepository,
+  createCredentialCrypto
+} from "../credentials/index.js";
 
 export interface DeepSeekConfig {
   apiKey: string;
@@ -78,4 +84,25 @@ export function parseDeepSeekConfig(env: NodeJS.ProcessEnv): DeepSeekConfig {
 export function loadDeepSeekConfig(): DeepSeekConfig {
   dotenv.config({ path: path.resolve(".env.local"), quiet: true });
   return parseDeepSeekConfig(process.env);
+}
+
+export async function loadDeepSeekConfigForPool(
+  pool: Pool,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<DeepSeekConfig> {
+  dotenv.config({ path: path.resolve(".env.local"), quiet: true });
+  const environmentApiKey = env.DEEPSEEK_API_KEY;
+  let storedApiKey: string | null = null;
+
+  try {
+    const credentials = new ServiceCredentialRepository(pool, createCredentialCrypto(env));
+    storedApiKey = await credentials.getSecret("DEEPSEEK");
+  } catch (error) {
+    if (!(error instanceof CredentialConfigError) || !environmentApiKey?.trim()) throw error;
+  }
+
+  return parseDeepSeekConfig({
+    ...env,
+    DEEPSEEK_API_KEY: storedApiKey ?? environmentApiKey
+  });
 }

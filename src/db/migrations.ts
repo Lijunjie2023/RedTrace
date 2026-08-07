@@ -162,5 +162,6 @@ export const expectedBusinessTables = [
   "analysis_records",
   "analysis_problem_types",
   "analysis_topics",
-  "manual_corrections"
+  "manual_corrections",
+  "service_credentials"
 ] as const;

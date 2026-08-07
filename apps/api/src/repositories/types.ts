@@ -1,6 +1,7 @@
 import type {
   Brand,
   ClassificationItem,
+  CollectionRunCreateInput,
   CollectionTaskSummary,
   CollectionStatusSummary,
   ContentDetail,
@@ -10,6 +11,8 @@ import type {
   ErrorCode,
   Keyword,
   OverviewData,
+  CredentialKind,
+  ServiceCredentialSummary,
   Topic
 } from "@readtrace/contracts";
 
@@ -67,6 +70,11 @@ export interface DataRepository {
   updateBrand(brandId: string, version: number, input: OptionalPatch<BrandCreateInput>): Promise<Brand>;
   listClassifications(options: ListOptions): Promise<Page<ClassificationItem>>;
   listCollectionRuns(options: ListOptions): Promise<CollectionRunPage>;
+  listServiceCredentials(): Promise<ServiceCredentialSummary[]>;
+  saveServiceCredential(kind: CredentialKind, secret: string): Promise<ServiceCredentialSummary>;
+  deleteServiceCredential(kind: CredentialKind): Promise<ServiceCredentialSummary>;
+  startCollection(input: CollectionRunCreateInput): Promise<CollectionTaskSummary>;
+  stopCollection(taskId: string): Promise<CollectionTaskSummary>;
   startManualCollection(brandId: string): Promise<CollectionTaskSummary>;
   retryCollectionRun(taskId: string): Promise<CollectionTaskSummary>;
   updateCorrection(

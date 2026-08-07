@@ -1,13 +1,13 @@
 import process from "node:process";
-import { AnalysisConfigError, loadDeepSeekConfig } from "./config.js";
+import { AnalysisConfigError, loadDeepSeekConfigForPool } from "./config.js";
 import { safeRunSummary, startUnifiedAnalysis } from "./run-all.js";
 import { createDatabaseContext } from "../db/pool.js";
 
 async function main(): Promise<void> {
   let context: Awaited<ReturnType<typeof createDatabaseContext>> | undefined;
   try {
-    const config = loadDeepSeekConfig();
     context = await createDatabaseContext();
+    const config = await loadDeepSeekConfigForPool(context.pool);
     const run = await startUnifiedAnalysis({ pool: context.pool, config, source: "automatic" });
     if (!run.started) {
       console.log(JSON.stringify({ started: false, reason: "already_running" }));

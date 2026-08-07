@@ -9,7 +9,16 @@ export const ConfidenceLevelSchema = z.enum(["HIGH", "MEDIUM", "LOW"]);
 export const BrandStatusSchema = z.enum(["DRAFT", "ENABLED", "DISABLED", "ARCHIVED"]);
 export const SearchTermTypeSchema = z.enum(["ALIAS", "MODEL", "EXCLUDE"]);
 export const SearchTermStatusSchema = z.enum(["ENABLED", "DISABLED", "ARCHIVED"]);
-export const CollectionTaskStatusSchema = z.enum(["QUEUED", "RUNNING", "SUCCESS", "PARTIAL_SUCCESS", "FAILED"]);
+export const CollectionTaskStatusSchema = z.enum([
+  "QUEUED",
+  "RUNNING",
+  "STOPPING",
+  "STOPPED",
+  "SUCCESS",
+  "PARTIAL_SUCCESS",
+  "FAILED"
+]);
+export const CredentialKindSchema = z.enum(["JUSTONEAPI", "DEEPSEEK"]);
 export const CollectionHealthSchema = z.enum(["NOT_COLLECTED", "HEALTHY", "PARTIAL", "FAILED", "STALE"]);
 export const EvidenceOriginSchema = z.enum(["ORIGINAL", "SIMULATED"]);
 export const AnalysisOriginSchema = z.enum(["MODEL", "HUMAN_OVERRIDE", "SIMULATED", "UNAVAILABLE"]);
@@ -17,6 +26,7 @@ export const SortOrderSchema = z.enum(["ASC", "DESC"]);
 
 export type DataMode = z.infer<typeof DataModeSchema>;
 export type ContentType = z.infer<typeof ContentTypeSchema>;
+export type CredentialKind = z.infer<typeof CredentialKindSchema>;
 
 export const PaginationSchema = z.object({
   page: z.number().int().min(1),
@@ -198,17 +208,34 @@ export const CollectionTaskSummarySchema = z.object({
   id: z.string().min(1),
   brandId: z.string().min(1),
   triggerType: z.enum(["MANUAL", "SCHEDULED", "RETRY"]),
+  keyword: z.string().nullable(),
+  noteLimit: z.number().int().min(1).max(10).nullable(),
   status: CollectionTaskStatusSchema,
   startedAt: z.string().datetime().nullable(),
   finishedAt: z.string().datetime().nullable(),
   succeededPostCount: z.number().int().min(0),
   failedPostCount: z.number().int().min(0),
+  fetchedPostCount: z.number().int().min(0),
+  fetchedCommentCount: z.number().int().min(0),
+  storedPostCount: z.number().int().min(0),
+  storedCommentCount: z.number().int().min(0),
+  skippedNoCommentPostCount: z.number().int().min(0),
+  failedCount: z.number().int().min(0),
   errorType: z.string().nullable(),
   errorSummary: z.string().nullable(),
   retryOfTaskId: z.string().nullable()
 });
 
 export type CollectionTaskSummary = z.infer<typeof CollectionTaskSummarySchema>;
+
+export const ServiceCredentialSummarySchema = z.object({
+  kind: CredentialKindSchema,
+  configured: z.boolean(),
+  lastFour: z.string().max(4).nullable(),
+  updatedAt: z.string().datetime().nullable()
+});
+
+export type ServiceCredentialSummary = z.infer<typeof ServiceCredentialSummarySchema>;
 
 export const CollectionStatusSummarySchema = z.object({
   lastSuccessfulCollectionAt: z.string().datetime().nullable(),
@@ -335,6 +362,18 @@ export const FixtureBundleSchema = z.object({
 export type FixtureBundle = z.infer<typeof FixtureBundleSchema>;
 
 export const LoginInputSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
+export const CollectionCredentialInputSchema = z.object({
+  secret: z.string().min(1).max(4096).refine((value) => value.trim().length > 0, {
+    message: "凭证不能为空。"
+  })
+});
+export const CollectionRunCreateInputSchema = z.object({
+  brandId: z.string().min(1),
+  keyword: z.string().trim().min(1).max(50),
+  noteLimit: z.number().int().min(1).max(10)
+});
+export type CollectionCredentialInput = z.infer<typeof CollectionCredentialInputSchema>;
+export type CollectionRunCreateInput = z.infer<typeof CollectionRunCreateInputSchema>;
 export const ManualCollectionInputSchema = z.object({ triggerType: z.literal("MANUAL") });
 export const BrandCreateInputSchema = z.object({
   name: z.string().trim().min(1).max(191),

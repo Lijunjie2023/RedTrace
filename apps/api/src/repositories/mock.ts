@@ -4,7 +4,9 @@ import {
   FixtureBundleSchema,
   type Brand,
   type ClassificationItem,
+  type CollectionRunCreateInput,
   type CollectionTaskSummary,
+  type CredentialKind,
   type ContentDetail,
   type ContentSummary,
   type DataManagementSummary,
@@ -12,6 +14,7 @@ import {
   type FixtureBundle,
   type Keyword,
   type OverviewData,
+  type ServiceCredentialSummary,
   type Topic
 } from "@readtrace/contracts";
 import type { BrandCreateInput, CollectionRunPage, DataRepository, ListOptions, OptionalPatch, Page } from "./types.js";
@@ -62,6 +65,7 @@ export class MockRepository implements DataRepository {
   private readonly brands: Brand[];
   private readonly classifications: ClassificationItem[];
   private readonly tasks: CollectionTaskSummary[];
+  private readonly credentials = new Map<CredentialKind, ServiceCredentialSummary>();
 
   private constructor(manifest: Manifest, bundle: FixtureBundle) {
     this.fixtureVersion = manifest.fixtureVersion;
@@ -375,11 +379,19 @@ export class MockRepository implements DataRepository {
       id: `mock-task-${randomUUID()}`,
       brandId,
       triggerType: "MANUAL",
+      keyword: null,
+      noteLimit: null,
       status: "QUEUED",
       startedAt: null,
       finishedAt: null,
       succeededPostCount: 0,
       failedPostCount: 0,
+      fetchedPostCount: 0,
+      fetchedCommentCount: 0,
+      storedPostCount: 0,
+      storedCommentCount: 0,
+      skippedNoCommentPostCount: 0,
+      failedCount: 0,
       errorType: null,
       errorSummary: null,
       retryOfTaskId: null
@@ -402,11 +414,19 @@ export class MockRepository implements DataRepository {
       id: `mock-task-${randomUUID()}`,
       brandId: original.brandId,
       triggerType: "RETRY",
+      keyword: original.keyword,
+      noteLimit: original.noteLimit,
       status: "QUEUED",
       startedAt: null,
       finishedAt: null,
       succeededPostCount: 0,
       failedPostCount: 0,
+      fetchedPostCount: 0,
+      fetchedCommentCount: 0,
+      storedPostCount: 0,
+      storedCommentCount: 0,
+      skippedNoCommentPostCount: 0,
+      failedCount: 0,
       errorType: null,
       errorSummary: null,
       retryOfTaskId: original.id
@@ -415,6 +435,59 @@ export class MockRepository implements DataRepository {
     const brand = this.brands.find((item) => item.id === original.brandId);
     if (brand) brand.latestTaskStatus = "QUEUED";
     return structuredClone(retry);
+  }
+
+  async listServiceCredentials(): Promise<ServiceCredentialSummary[]> {
+    return (["JUSTONEAPI", "DEEPSEEK"] as const).map((kind) => structuredClone(
+      this.credentials.get(kind) ?? { kind, configured: false, lastFour: null, updatedAt: null }
+    ));
+  }
+
+  async saveServiceCredential(kind: CredentialKind, secret: string): Promise<ServiceCredentialSummary> {
+    const summary: ServiceCredentialSummary = {
+      kind,
+      configured: true,
+      lastFour: Array.from(secret).slice(-4).join(""),
+      updatedAt: new Date().toISOString()
+    };
+    this.credentials.set(kind, summary);
+    return structuredClone(summary);
+  }
+
+  async deleteServiceCredential(kind: CredentialKind): Promise<ServiceCredentialSummary> {
+    const hasActiveReference = kind === "JUSTONEAPI"
+      && this.tasks.some((task) => ["QUEUED", "RUNNING", "STOPPING"].includes(task.status));
+    if (hasActiveReference) {
+      throw new RepositoryError("VALIDATION_ERROR", 422, false, "有采集任务正在运行，暂时不能删除采集凭证。");
+    }
+    this.credentials.delete(kind);
+    return { kind, configured: false, lastFour: null, updatedAt: null };
+  }
+
+  async startCollection(input: CollectionRunCreateInput): Promise<CollectionTaskSummary> {
+    if (!this.credentials.get("JUSTONEAPI")?.configured) {
+      throw new RepositoryError("VALIDATION_ERROR", 422, false, "请先配置JustOneAPI Token。");
+    }
+    const task = await this.startManualCollection(input.brandId);
+    task.keyword = input.keyword;
+    task.noteLimit = input.noteLimit;
+    const stored = this.tasks.find((item) => item.id === task.id);
+    if (stored) {
+      stored.keyword = input.keyword;
+      stored.noteLimit = input.noteLimit;
+    }
+    return task;
+  }
+
+  async stopCollection(taskId: string): Promise<CollectionTaskSummary> {
+    const task = this.tasks.find((item) => item.id === taskId);
+    if (!task) throw new RepositoryError("NOT_FOUND", 404, false, "采集任务不存在。");
+    if (task.status !== "QUEUED" && task.status !== "RUNNING") {
+      throw new RepositoryError("VALIDATION_ERROR", 422, false, "只有正在执行的采集任务可以停止。");
+    }
+    task.status = task.status === "QUEUED" ? "STOPPED" : "STOPPING";
+    if (task.status === "STOPPED") task.finishedAt = new Date().toISOString();
+    return structuredClone(task);
   }
 
   async updateCorrection(

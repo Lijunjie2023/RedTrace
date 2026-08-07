@@ -3,7 +3,7 @@ import { persistenceErrorType, safePersistenceSummary } from "./errors.js";
 import { validatePersistPostInput } from "./mapping.js";
 import { CollectionPersistenceRepository } from "./repository.js";
 import { CollectionTaskRepository } from "./task-repository.js";
-import type { PersistBatchInput, PersistBatchResult, PersistPostInput } from "./types.js";
+import type { PersistBatchInput, PersistBatchResult, PersistItemResult, PersistPostInput } from "./types.js";
 
 export class CollectionPersistenceService {
   private readonly contentRepository = new CollectionPersistenceRepository();
@@ -13,12 +13,12 @@ export class CollectionPersistenceService {
     this.tasks = new CollectionTaskRepository(pool);
   }
 
-  private async persistOne(
+  async persistItem(
     taskId: number,
     dataSourceId: number,
     brandId: number,
     item: PersistPostInput
-  ): Promise<void> {
+  ): Promise<PersistItemResult> {
     validatePersistPostInput(item.post, item.comments, item.matches, item.observedAt);
     const connection = await this.pool.getConnection();
     let connectionReusable = true;
@@ -30,6 +30,7 @@ export class CollectionPersistenceService {
       await this.contentRepository.saveRawSnapshots(connection, taskId, postId, commentIds, item);
       await this.contentRepository.saveBrandMatches(connection, dataSourceId, brandId, taskId, postId, item.matches);
       await connection.commit();
+      return { storedPostCount: 1, storedCommentCount: commentIds.size };
     } catch (error) {
       try {
         await connection.rollback();
@@ -49,7 +50,7 @@ export class CollectionPersistenceService {
     const failures: PersistBatchResult["failures"] = [];
     for (const item of input.items) {
       try {
-        await this.persistOne(input.taskId, input.dataSourceId, input.brandId, item);
+        await this.persistItem(input.taskId, input.dataSourceId, input.brandId, item);
         succeededPostCount += 1;
       } catch (error) {
         failures.push({ noteId: item.post.noteId, errorType: persistenceErrorType(error) });

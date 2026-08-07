@@ -39,15 +39,17 @@ test("Web保留证据深链路由并在主导航展示内容明细", async () =>
     "/content",
     "/content/:contentType/:id",
     "/brands",
+    "/data-collection",
     "/data-management",
     "/data-status"
   ];
   for (const route of routes) assert.match(app, new RegExp(`path=\\"${route.replaceAll("/", "\\/")}\\"`));
   assert.match(shell, /const navigation = \[/);
   const navigationBlock = shell.match(/const navigation = \[([\s\S]*?)\] as const/)?.[1] ?? "";
-  assert.equal((navigationBlock.match(/\["\//g) ?? []).length, 5);
+  assert.equal((navigationBlock.match(/\["\//g) ?? []).length, 6);
   assert.doesNotMatch(navigationBlock, /\/insights/);
   assert.match(navigationBlock, /\/content/);
+  assert.match(navigationBlock, /\/data-collection/);
   assert.match(navigationBlock, /\/data-management/);
 });
 

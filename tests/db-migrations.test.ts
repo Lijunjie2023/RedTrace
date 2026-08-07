@@ -178,7 +178,8 @@ test("第二版SQL保留模型历史、分类关联和独立人工修正", async
     "brand_post_matches",
     "collection_cursors",
     "collection_locks",
-    ...tableNames
+    ...tableNames,
+    "service_credentials"
   ]);
   assert.match(sql, /UNIQUE KEY uq_analysis_records_idempotency \(idempotency_key\)/);
   assert.match(sql, /input_digest CHAR\(64\).*NOT NULL/);

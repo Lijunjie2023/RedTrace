@@ -6,9 +6,12 @@ import {
   BrandCreateInputSchema,
   BrandPatchInputSchema,
   BrandSearchTermsInputSchema,
+  CollectionCredentialInputSchema,
+  CollectionRunCreateInputSchema,
   ContentListQuerySchema,
   ContentTypeSchema,
   CorrectionInputSchema,
+  CredentialKindSchema,
   LoginInputSchema,
   ManualCollectionInputSchema,
   PageQuerySchema,
@@ -238,13 +241,14 @@ export async function createServer(config: RuntimeConfig): Promise<FastifyInstan
     }
     let context: Awaited<ReturnType<typeof import("../../../src/db/pool.js").createDatabaseContext>> | undefined;
     try {
-      const [{ createDatabaseContext }, { loadDeepSeekConfig }, { safeRunSummary, startUnifiedAnalysis }] = await Promise.all([
+      const [{ createDatabaseContext }, { loadDeepSeekConfigForPool }, { safeRunSummary, startUnifiedAnalysis }] = await Promise.all([
         import("../../../src/db/pool.js"),
         import("../../../src/analysis/config.js"),
         import("../../../src/analysis/run-all.js")
       ]);
       context = await createDatabaseContext();
-      const run = await startUnifiedAnalysis({ pool: context.pool, config: loadDeepSeekConfig(), source: "manual" });
+      const analysisConfig = await loadDeepSeekConfigForPool(context.pool);
+      const run = await startUnifiedAnalysis({ pool: context.pool, config: analysisConfig, source: "manual" });
       if (!run.started) {
         await context.pool.end();
         return reply.status(202).send(ok(request, { started: false, reason: "already_running" }));
@@ -331,6 +335,18 @@ export async function createServer(config: RuntimeConfig): Promise<FastifyInstan
     ManualCollectionInputSchema.parse(request.body);
     return reply.status(202).send(ok(request, await repository.startManualCollection(brandId)));
   });
+  app.get(`${API_ROOT}/service-credentials`, async (request) => {
+    return ok(request, await repository.listServiceCredentials());
+  });
+  app.put(`${API_ROOT}/service-credentials/:kind`, async (request) => {
+    const { kind } = z.object({ kind: CredentialKindSchema }).parse(request.params);
+    const { secret } = CollectionCredentialInputSchema.parse(request.body);
+    return ok(request, await repository.saveServiceCredential(kind, secret));
+  });
+  app.delete(`${API_ROOT}/service-credentials/:kind`, async (request) => {
+    const { kind } = z.object({ kind: CredentialKindSchema }).parse(request.params);
+    return ok(request, await repository.deleteServiceCredential(kind));
+  });
   app.get(`${API_ROOT}/classifications`, async (request) => {
     const options = parsePage(request.query);
     rejectRouteFilters(options, ["classificationType", "isEnabled"]);
@@ -348,6 +364,14 @@ export async function createServer(config: RuntimeConfig): Promise<FastifyInstan
       consecutiveFailureCount: result.consecutiveFailureCount,
       volumeAnomaly: result.volumeAnomaly
     });
+  });
+  app.post(`${API_ROOT}/collection-runs`, async (request, reply) => {
+    const input = CollectionRunCreateInputSchema.parse(request.body);
+    return reply.status(202).send(ok(request, await repository.startCollection(input)));
+  });
+  app.post(`${API_ROOT}/collection-runs/:taskId/stop`, async (request, reply) => {
+    const { taskId } = z.object({ taskId: z.string().min(1) }).parse(request.params);
+    return reply.status(202).send(ok(request, await repository.stopCollection(taskId)));
   });
   app.post(`${API_ROOT}/collection-runs/:taskId/retries`, async (request, reply) => {
     const { taskId } = z.object({ taskId: z.string().min(1) }).parse(request.params);

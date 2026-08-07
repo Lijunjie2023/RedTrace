@@ -2,13 +2,20 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
 import type {
   Brand,
   ClassificationItem,
+  CollectionRunCreateInput,
   CollectionTaskSummary,
+  CredentialKind,
   ContentDetail,
   ContentSummary,
   DataManagementSummary,
   EffectiveAnalysis,
-  OverviewData
+  OverviewData,
+  ServiceCredentialSummary
 } from "@readtrace/contracts";
+import { createCredentialCrypto, ServiceCredentialRepository } from "../../../../src/credentials/index.js";
+import { CollectionTaskRepository } from "../../../../src/db/persistence/index.js";
+import { PersistenceError } from "../../../../src/db/persistence/errors.js";
+import { runCollectionTask } from "../../../../src/collection/run.js";
 import type { BrandCreateInput, CollectionRunPage, DataRepository, ListOptions, OptionalPatch, Page } from "./types.js";
 import { RepositoryError, dataNotReady, notImplemented } from "./types.js";
 import { completeSentimentTrend, overviewDateBuckets } from "./overview-trend.js";
@@ -26,6 +33,32 @@ function iso(value: Date | string | null): string | null {
 
 function page<T>(items: T[], totalItems: number, options: ListOptions): Page<T> {
   return { items, totalItems, page: options.page, pageSize: options.pageSize };
+}
+
+function collectionTaskSummary(row: RowDataPacket): CollectionTaskSummary {
+  return {
+    id: String(row.id),
+    brandId: String(row.brand_id),
+    triggerType: upper(row.trigger_type),
+    keyword: row.keyword === null || row.keyword === undefined ? null : String(row.keyword),
+    noteLimit: row.requested_note_limit === null || row.requested_note_limit === undefined
+      ? null
+      : Number(row.requested_note_limit),
+    status: upper(row.status),
+    startedAt: iso(row.started_at),
+    finishedAt: iso(row.finished_at),
+    succeededPostCount: Number(row.succeeded_post_count ?? 0),
+    failedPostCount: Number(row.failed_post_count ?? 0),
+    fetchedPostCount: Number(row.fetched_post_count ?? 0),
+    fetchedCommentCount: Number(row.fetched_comment_count ?? 0),
+    storedPostCount: Number(row.stored_post_count ?? 0),
+    storedCommentCount: Number(row.stored_comment_count ?? 0),
+    skippedNoCommentPostCount: Number(row.skipped_no_comment_post_count ?? 0),
+    failedCount: Number(row.failed_count ?? 0),
+    errorType: row.error_type ?? null,
+    errorSummary: row.error_summary ?? null,
+    retryOfTaskId: row.retry_of_task_id === null ? null : String(row.retry_of_task_id)
+  };
 }
 
 function unavailableAnalysis(): EffectiveAnalysis {
@@ -977,17 +1010,14 @@ export class MysqlRepository implements DataRepository {
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const [countRows] = await this.pool.query<CountRow[]>(`SELECT COUNT(*) AS total FROM collection_tasks ${where}`, params);
     const [rows] = await this.pool.query<RowDataPacket[]>(
-      `SELECT id, brand_id, trigger_type, status, started_at, finished_at, succeeded_post_count,
-              failed_post_count, error_type, error_summary, retry_of_task_id
+      `SELECT id, brand_id, trigger_type, keyword, requested_note_limit, status, started_at, finished_at,
+              succeeded_post_count, failed_post_count, fetched_post_count, fetched_comment_count,
+              stored_post_count, stored_comment_count, skipped_no_comment_post_count, failed_count,
+              error_type, error_summary, retry_of_task_id
        FROM collection_tasks ${where} ORDER BY created_at ${options.sortOrder}, id ${options.sortOrder} LIMIT ? OFFSET ?`,
       [...params, options.pageSize, offset]
     );
-    const items = rows.map((row): CollectionTaskSummary => ({
-      id: String(row.id), brandId: String(row.brand_id), triggerType: upper(row.trigger_type), status: upper(row.status),
-      startedAt: iso(row.started_at), finishedAt: iso(row.finished_at), succeededPostCount: Number(row.succeeded_post_count),
-      failedPostCount: Number(row.failed_post_count), errorType: row.error_type ?? null, errorSummary: row.error_summary ?? null,
-      retryOfTaskId: row.retry_of_task_id === null ? null : String(row.retry_of_task_id)
-    }));
+    const items = rows.map(collectionTaskSummary);
     const [statusRows] = await this.pool.query<RowDataPacket[]>(
       `SELECT status, finished_at, error_type
        FROM collection_tasks
@@ -1008,6 +1038,121 @@ export class MysqlRepository implements DataRepository {
       consecutiveFailureCount,
       volumeAnomaly: statusRows.some((row) => row.error_type === "volume_anomaly")
     };
+  }
+
+  private credentialRepository(): ServiceCredentialRepository {
+    try {
+      return new ServiceCredentialRepository(this.pool, createCredentialCrypto());
+    } catch {
+      throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, false, "凭证加密服务暂时不可用。");
+    }
+  }
+
+  async listServiceCredentials(): Promise<ServiceCredentialSummary[]> {
+    try {
+      return await this.credentialRepository().listSummaries();
+    } catch (error) {
+      if (error instanceof RepositoryError) throw error;
+      throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, false, "凭证服务暂时不可用。");
+    }
+  }
+
+  async saveServiceCredential(kind: CredentialKind, secret: string): Promise<ServiceCredentialSummary> {
+    try {
+      return await this.credentialRepository().upsert(kind, secret);
+    } catch (error) {
+      if (error instanceof RepositoryError) throw error;
+      throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, false, "凭证服务暂时不可用。");
+    }
+  }
+
+  async deleteServiceCredential(kind: CredentialKind): Promise<ServiceCredentialSummary> {
+    if (kind === "JUSTONEAPI") {
+      const [rows] = await this.pool.query<RowDataPacket[]>(
+        "SELECT id FROM collection_tasks WHERE status IN ('queued', 'running', 'stopping') LIMIT 1"
+      );
+      if (rows.length > 0) {
+        throw new RepositoryError("VALIDATION_ERROR", 422, false, "有采集任务正在运行，暂时不能删除采集凭证。");
+      }
+    } else {
+      const [rows] = await this.pool.query<RowDataPacket[]>(
+        "SELECT IS_USED_LOCK(?) AS lockOwner",
+        ["readtrace:content-analysis"]
+      );
+      if (rows[0]?.lockOwner !== null && rows[0]?.lockOwner !== undefined) {
+        throw new RepositoryError("VALIDATION_ERROR", 422, false, "有分析任务正在运行，暂时不能删除分析凭证。");
+      }
+    }
+    try {
+      const credentials = this.credentialRepository();
+      await credentials.delete(kind);
+      return await credentials.getSummary(kind);
+    } catch (error) {
+      if (error instanceof RepositoryError) throw error;
+      throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, false, "凭证服务暂时不可用。");
+    }
+  }
+
+  async startCollection(input: CollectionRunCreateInput): Promise<CollectionTaskSummary> {
+    if (!/^\d+$/.test(input.brandId)) throw new RepositoryError("VALIDATION_ERROR", 422, false, "品牌编号无效。");
+    const token = await this.credentialRepository().getSecret("JUSTONEAPI").catch(() => {
+      throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, false, "采集凭证暂时无法读取。");
+    });
+    if (!token) throw new RepositoryError("VALIDATION_ERROR", 422, false, "请先配置JustOneAPI Token。");
+    const tasks = new CollectionTaskRepository(this.pool);
+    let created;
+    try {
+      created = await tasks.createApiTask({
+        brandId: Number(input.brandId),
+        keyword: input.keyword,
+        noteLimit: input.noteLimit
+      });
+    } catch (error) {
+      if (error instanceof PersistenceError && error.message === "collection_already_running") {
+        throw new RepositoryError("COLLECTION_ALREADY_RUNNING", 409, false, "该品牌已有采集任务正在执行。");
+      }
+      if (error instanceof PersistenceError && error.message === "brand_not_found") {
+        throw new RepositoryError("NOT_FOUND", 404, false, "品牌不存在。");
+      }
+      if (error instanceof PersistenceError && error.message === "brand_not_enabled") {
+        throw new RepositoryError("VALIDATION_ERROR", 422, false, "只有已启用的品牌可以开始采集。");
+      }
+      throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, true, "采集任务暂时无法创建。");
+    }
+    void runCollectionTask({ pool: this.pool, task: created, justOneApiToken: token }).catch(async () => {
+      await tasks.finishApiTask(created.taskId, "failed", "collection_runner_failed").catch(() => undefined);
+    });
+    return await this.getCollectionTask(String(created.taskId));
+  }
+
+  async stopCollection(taskId: string): Promise<CollectionTaskSummary> {
+    if (!/^\d+$/.test(taskId)) throw new RepositoryError("NOT_FOUND", 404, false, "采集任务不存在。");
+    try {
+      await new CollectionTaskRepository(this.pool).requestStop(Number(taskId));
+    } catch (error) {
+      if (error instanceof PersistenceError && error.message === "task_not_found") {
+        throw new RepositoryError("NOT_FOUND", 404, false, "采集任务不存在。");
+      }
+      if (error instanceof PersistenceError && error.message === "task_not_stoppable") {
+        throw new RepositoryError("VALIDATION_ERROR", 422, false, "只有正在执行的采集任务可以停止。");
+      }
+      throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, true, "暂时无法停止采集任务。");
+    }
+    return await this.getCollectionTask(taskId);
+  }
+
+  private async getCollectionTask(taskId: string): Promise<CollectionTaskSummary> {
+    const [rows] = await this.pool.query<RowDataPacket[]>(
+      `SELECT id, brand_id, trigger_type, keyword, requested_note_limit, status, started_at, finished_at,
+              succeeded_post_count, failed_post_count, fetched_post_count, fetched_comment_count,
+              stored_post_count, stored_comment_count, skipped_no_comment_post_count, failed_count,
+              error_type, error_summary, retry_of_task_id
+       FROM collection_tasks WHERE id = ? LIMIT 1`,
+      [taskId]
+    );
+    const row = rows[0];
+    if (!row) throw new RepositoryError("NOT_FOUND", 404, false, "采集任务不存在。");
+    return collectionTaskSummary(row);
   }
 
   async startManualCollection(_brandId: string): Promise<CollectionTaskSummary> { return dataNotReady(); }

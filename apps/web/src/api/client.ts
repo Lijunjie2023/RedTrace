@@ -5,6 +5,8 @@ import {
   BrandSchema,
   ClassificationItemSchema,
   CollectionTaskSummarySchema,
+  CollectionRunCreateInputSchema,
+  CredentialKindSchema,
   ContentDetailSchema,
   ContentSummarySchema,
   DataManagementSummarySchema,
@@ -13,18 +15,21 @@ import {
   KeywordSchema,
   OverviewDataSchema,
   ResponseMetaSchema,
+  ServiceCredentialSummarySchema,
   TopicSchema,
   apiSuccessSchema,
   type Brand,
   type AnalysisRunTrigger,
   type ClassificationItem,
   type CollectionTaskSummary,
+  type CredentialKind,
   type ContentDetail,
   type ContentSummary,
   type DataManagementSummary,
   type EffectiveAnalysis,
   type Keyword,
   type OverviewData,
+  type ServiceCredentialSummary,
   type Topic
 } from "@readtrace/contracts";
 import { z } from "zod";
@@ -37,6 +42,7 @@ type Pagination = NonNullable<ResponseMeta["pagination"]>;
 type Paginated<T> = { items: T[]; pagination: Pagination };
 type Evidence = ContentDetail["context"][number];
 type BrandCreateInput = ReturnType<typeof BrandCreateInputSchema.parse>;
+type CollectionRunCreateInput = ReturnType<typeof CollectionRunCreateInputSchema.parse>;
 
 const SessionSchema = z.object({ isAuthenticated: z.boolean(), expiresAt: z.string().datetime().nullable().optional() });
 const TopicPageSchema = z.union([z.array(TopicSchema), z.object({ items: z.array(TopicSchema), analysisStatus: z.enum(["AVAILABLE", "NOT_AVAILABLE"]).optional() })]);
@@ -46,6 +52,7 @@ const EvidencePageSchema = z.union([z.array(EvidenceRefSchema), z.object({ items
 const BrandPageSchema = z.union([z.array(BrandSchema), z.object({ items: z.array(BrandSchema) })]);
 const ClassificationPageSchema = z.union([z.array(ClassificationItemSchema), z.object({ items: z.array(ClassificationItemSchema) })]);
 const TaskPageSchema = z.array(CollectionTaskSummarySchema);
+const ServiceCredentialPageSchema = z.array(ServiceCredentialSummarySchema);
 
 export class ApiError extends Error {
   readonly code: string;
@@ -165,6 +172,19 @@ export const api = {
   triggerCollection: (brandId: string) => request(`/brands/${encodeURIComponent(brandId)}/collection-runs`, CollectionTaskSummarySchema, {
     method: "POST", body: JSON.stringify({ triggerType: "MANUAL" })
   }),
+  getServiceCredentials: () => request("/service-credentials", ServiceCredentialPageSchema),
+  saveServiceCredential: (kind: CredentialKind, secret: string) => request(`/service-credentials/${CredentialKindSchema.parse(kind)}`, ServiceCredentialSummarySchema, {
+    method: "PUT", body: JSON.stringify({ secret })
+  }),
+  deleteServiceCredential: (kind: CredentialKind) => request(`/service-credentials/${CredentialKindSchema.parse(kind)}`, ServiceCredentialSummarySchema, {
+    method: "DELETE"
+  }),
+  startCollection: (input: CollectionRunCreateInput) => request("/collection-runs", CollectionTaskSummarySchema, {
+    method: "POST", body: JSON.stringify(CollectionRunCreateInputSchema.parse(input))
+  }),
+  stopCollection: (taskId: string) => request(`/collection-runs/${encodeURIComponent(taskId)}/stop`, CollectionTaskSummarySchema, {
+    method: "POST", body: "{}"
+  }),
   getClassifications: async (): Promise<Paginated<ClassificationItem>> => asPage(
     await request("/classifications?page=1&pageSize=100", ClassificationPageSchema)
   ),
@@ -191,4 +211,4 @@ export const api = {
   })
 };
 
-export type { AnalysisRunTrigger, Brand, BrandCreateInput, ClassificationItem, CollectionTaskSummary, ContentDetail, ContentSummary, DataManagementSummary, EffectiveAnalysis, Evidence, Keyword, OverviewData, Topic };
+export type { AnalysisRunTrigger, Brand, BrandCreateInput, ClassificationItem, CollectionRunCreateInput, CollectionTaskSummary, ContentDetail, ContentSummary, CredentialKind, DataManagementSummary, EffectiveAnalysis, Evidence, Keyword, OverviewData, ServiceCredentialSummary, Topic };

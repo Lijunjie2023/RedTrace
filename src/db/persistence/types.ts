@@ -1,12 +1,36 @@
 import type { Comment, Post } from "../../xhs-probe/types.js";
 
-export type CollectionTaskStatus = "queued" | "running" | "success" | "partial_success" | "failed";
+export type CollectionTaskStatus = "queued" | "running" | "stopping" | "stopped" | "success" | "partial_success" | "failed";
 export type CollectionTriggerType = "manual" | "scheduled" | "retry";
 
 export interface CreateTaskInput {
   dataSourceId: number;
   brandId: number;
   triggerType: Exclude<CollectionTriggerType, "retry">;
+}
+
+export interface CreateApiTaskInput {
+  brandId: number;
+  keyword: string;
+  noteLimit: number;
+}
+
+export interface CreatedApiTask {
+  taskId: number;
+  dataSourceId: number;
+  brandId: number;
+  searchTermId: number;
+  keyword: string;
+  noteLimit: number;
+}
+
+export interface CollectionProgressDelta {
+  fetchedPostCount?: number;
+  fetchedCommentCount?: number;
+  storedPostCount?: number;
+  storedCommentCount?: number;
+  skippedNoCommentPostCount?: number;
+  failedCount?: number;
 }
 
 export interface BrandMatchInput {
@@ -40,6 +64,11 @@ export interface PersistBatchResult {
   succeededPostCount: number;
   failedPostCount: number;
   failures: Array<{ noteId: string; errorType: PersistenceErrorType }>;
+}
+
+export interface PersistItemResult {
+  storedPostCount: 1;
+  storedCommentCount: number;
 }
 
 export type PersistenceErrorType =
