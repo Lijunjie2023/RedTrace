@@ -22,4 +22,7 @@ JustOneAPI 笔记搜索 V4 文档说明接口支持 `page` 分页，后续页面
 - `npm test`：134 项通过，1 项因当前 Windows 环境不允许创建符号链接而跳过。
 - `npm run build`：根项目、API、Web 和契约包构建通过。
 - 代码审查：未发现需要阻止发布的问题；分页具有 20 页安全上限，每页请求后都会检查停止信号。
-- 线上验收：部署后补充。
+- 代码提交：`afb2d01 feat: raise API collection limit to 100`，已经推送并部署。
+- 生产目录提交为 `afb2d01`，前端资源为 `assets/index-DF_qr58B.js`。
+- `readtrace-api.service` 为 `active/running`，本机 API 会话接口返回 HTTP 200。
+- `readtrace-analysis.timer` 保持 `inactive`，本次发布没有改变既有的内存保护策略。
