@@ -78,8 +78,21 @@ test("问题热榜最多十条降序且表头保持横排", async () => {
   ]);
 
   assert.match(overview, /sort\(\(left, right\) => right\.evidenceCount - left\.evidenceCount\)\.slice\(0, 10\)/);
+  assert.match(overview, /className="topic-ranking-table"/);
+  assert.match(overview, /className="topic-ranking-head topic-ranking-grid"/);
+  assert.match(overview, /className="topic-ranking-head__rank">排名<\/div>/);
+  assert.match(overview, /className="topic-ranking-head__problem">问题<\/div>/);
+  assert.match(overview, /className="topic-ranking-head__change">较上期<\/div>/);
+  assert.match(overview, /className="topic-ranking-head__posts">影响帖子<\/div>/);
+  assert.match(overview, /className="topic-ranking-head__comments">评论<\/div>/);
+  assert.match(overview, /className="topic-ranking-row topic-ranking-grid"/);
+  assert.match(styles, /--topic-ranking-columns:/);
+  assert.match(styles, /\.topic-ranking-grid \{[^}]*grid-template-columns:\s*var\(--topic-ranking-columns\)/);
   assert.match(styles, /\.topic-ranking-head \{[^}]*white-space:\s*nowrap/);
-  assert.match(styles, /grid-template-columns:\s*minmax\(2\.75rem, auto\)\s+minmax\(/);
+  assert.match(styles, /\.topic-rank \{[^}]*border-radius:/);
+  assert.match(styles, /\.topic-rank--1 \{[^}]*background:/);
+  assert.match(styles, /\.topic-rank--2 \{[^}]*background:/);
+  assert.match(styles, /\.topic-rank--3 \{[^}]*background:/);
 });
 
 test("品类内容对比按业务顺序最多单行展示六项", async () => {
