@@ -19,4 +19,8 @@
 
 - `npm test`：133 项通过，1 项因 Windows 不允许创建符号链接而跳过。
 - `npm run build`：根项目、API、Web 和契约包构建通过。
-- 线上接口与页面检查：部署后补充。
+- 代码提交：`04d0624 fix: show collected comment publish times`，已经推送到远端分支 `codex/data-path-validation`。
+- 生产目录已经快进到 `04d0624`，本地构建的前端资源 `assets/index-HdM8QHgv.js` 已经发布。
+- `readtrace-api.service` 为 `active`，本机 API 会话接口返回 HTTP 200，Nginx 和 443、8443、3100 监听正常。
+- 评论内容接口需要管理员会话；无凭证验收只确认鉴权边界正常，没有读取或输出评论正文。
+- `readtrace-analysis.timer` 保持 `inactive`，本次发布没有改变既有的内存保护策略。
