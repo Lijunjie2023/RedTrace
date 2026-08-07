@@ -15,10 +15,11 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:status": "tsx src/db/status.ts",
     "analyze:content": "tsx src/analysis/cli.ts",
+    "analyze:all": "tsx src/analysis/run-all-cli.ts",
     "dev": "npm run dev --workspaces --if-present",
     "probe:xhs": "tsx src/xhs-probe/cli.ts",
     "probe:justoneapi": "tsx src/justoneapi-probe/cli.ts",
-    "test": "tsc -p tsconfig.test.json && node --import tsx --test --test-concurrency=1 .test-dist/tests/*.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present"
   },
   "dependencies": {

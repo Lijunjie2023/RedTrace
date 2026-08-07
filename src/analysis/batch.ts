@@ -134,6 +134,7 @@ export async function runAnalysisBatch(input: {
         budgetConsumed += Math.max(estimatedTokens, failureUsage?.totalTokens ?? 0);
       }
       if (stopsBatch) {
+        summary.stoppedReason = "NON_RECOVERABLE_ERROR";
         exhausted = true;
         break;
       }

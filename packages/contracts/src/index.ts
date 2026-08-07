@@ -263,6 +263,20 @@ export const DataManagementSummarySchema = z.object({
 
 export type DataManagementSummary = z.infer<typeof DataManagementSummarySchema>;
 
+export const AnalysisRunTriggerSchema = z.object({
+  started: z.boolean(),
+  reason: z.literal("already_running").optional()
+}).superRefine((value, context) => {
+  if (value.started && value.reason !== undefined) {
+    context.addIssue({ code: "custom", path: ["reason"], message: "已启动的任务不能包含跳过原因。" });
+  }
+  if (!value.started && value.reason !== "already_running") {
+    context.addIssue({ code: "custom", path: ["reason"], message: "未启动的任务必须说明当前已有任务运行。" });
+  }
+});
+
+export type AnalysisRunTrigger = z.infer<typeof AnalysisRunTriggerSchema>;
+
 export const TopicSchema = z.object({
   id: z.string(),
   name: z.string(),

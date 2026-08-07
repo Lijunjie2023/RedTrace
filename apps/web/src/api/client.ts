@@ -1,5 +1,6 @@
 import {
   ApiFailureSchema,
+  AnalysisRunTriggerSchema,
   BrandCreateInputSchema,
   BrandSchema,
   ClassificationItemSchema,
@@ -15,6 +16,7 @@ import {
   TopicSchema,
   apiSuccessSchema,
   type Brand,
+  type AnalysisRunTrigger,
   type ClassificationItem,
   type CollectionTaskSummary,
   type ContentDetail,
@@ -167,6 +169,7 @@ export const api = {
     await request("/classifications?page=1&pageSize=100", ClassificationPageSchema)
   ),
   getDataManagementSummary: () => request("/data-management/summary", DataManagementSummarySchema),
+  triggerAnalysis: () => request("/analysis-runs", AnalysisRunTriggerSchema, { method: "POST", body: "{}" }),
   getTasks: async (search: URLSearchParams): Promise<Paginated<CollectionTaskSummary> & {
     lastSuccessfulCollectionAt: string | null | undefined;
     consecutiveFailureCount: number | undefined;
@@ -188,4 +191,4 @@ export const api = {
   })
 };
 
-export type { Brand, BrandCreateInput, ClassificationItem, CollectionTaskSummary, ContentDetail, ContentSummary, DataManagementSummary, EffectiveAnalysis, Evidence, Keyword, OverviewData, Topic };
+export type { AnalysisRunTrigger, Brand, BrandCreateInput, ClassificationItem, CollectionTaskSummary, ContentDetail, ContentSummary, DataManagementSummary, EffectiveAnalysis, Evidence, Keyword, OverviewData, Topic };

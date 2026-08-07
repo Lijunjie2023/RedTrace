@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ReadTrace pending content analysis every 30 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=true
+Unit=readtrace-analysis.service
+
+[Install]
+WantedBy=timers.target

@@ -9,7 +9,7 @@
 当前代码还有以下运行边界：
 
 - LIVE模式使用环境变量中的单一管理员账号。登录Cookie必须启用`Secure`，会话只保存在API进程内存中，API重启后需要重新登录；当前不适合多用户或高可用部署。
-- DeepSeek分析和小红书采集探针是独立命令，不随API启动，也没有包含在本次systemd服务中。
+- DeepSeek分析由独立的systemd定时器每30分钟触发，不随API进程启动；小红书采集探针仍是独立命令。
 - LIVE模式下的手动采集、采集重试、品牌写入和导出仍有未完成功能。
 
 ## 2. 目录和账号
@@ -103,6 +103,8 @@ sudo chmod -R u=rwX,go=rX /opt/readtrace/current
 
 `npm run build`生成前端静态文件到`apps/web/dist`。当前API和共享契约的构建命令只做类型检查，不生成后端JavaScript产物。
 
+测试命令会先编译测试文件，再通过Node.js 20支持的`--import tsx`加载工作区TypeScript源码。部署时应直接执行`npm test`，不要改用旧版loader参数或跳过测试。
+
 构建成功后，把静态产物发布到Nginx专用目录。`readlink`检查用于阻止目标目录被替换成符号链接，`rsync --delete`只允许作用于这个已确认的固定目录：
 
 ```bash
@@ -149,16 +151,22 @@ sudo install -o root -g root -m 0600 <私钥文件> /etc/readtrace/tls/readtrace
 ```bash
 cd /opt/readtrace/current
 sudo install -o root -g root -m 0644 deploy/systemd/readtrace-api.service /etc/systemd/system/readtrace-api.service
+sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.service /etc/systemd/system/readtrace-analysis.service
+sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.timer /etc/systemd/system/readtrace-analysis.timer
 sudo install -o root -g root -m 0644 deploy/nginx/readtrace.conf /etc/nginx/conf.d/readtrace.conf
 sudo systemctl daemon-reload
-sudo systemd-analyze verify /etc/systemd/system/readtrace-api.service
+sudo systemd-analyze verify /etc/systemd/system/readtrace-api.service \
+  /etc/systemd/system/readtrace-analysis.service \
+  /etc/systemd/system/readtrace-analysis.timer
 sudo nginx -t
 sudo systemctl enable --now readtrace-api.service
+sudo systemctl enable --now readtrace-analysis.timer
 sudo systemctl is-active --quiet readtrace-api.service
+sudo systemctl is-active --quiet readtrace-analysis.timer
 sudo systemctl reload nginx
 ```
 
-`readtrace-api.service`从`/etc/readtrace/readtrace.env`读取环境变量，以`readtrace`账号运行，并只连接外部网络和本机套接字。`ProtectSystem=strict`和`ReadOnlyPaths=/opt/readtrace/current`让代码在服务进程中保持只读。代码及依赖由root持有，运行账号没有写入权限。
+`readtrace-api.service`和`readtrace-analysis.service`都从`/etc/readtrace/readtrace.env`读取环境变量，以`readtrace`账号运行，并只连接外部网络和本机套接字。`ProtectSystem=strict`和`ReadOnlyPaths=/opt/readtrace/current`让代码在服务进程中保持只读。代码及依赖由root持有，运行账号没有写入权限。
 
 如果SELinux处于Enforcing状态，需要允许Nginx读取静态目录并连接本机API：
 
@@ -185,6 +193,11 @@ sudo setsebool -P httpd_can_network_connect 1
 ```bash
 sudo systemctl --no-pager --full status readtrace-api.service
 sudo journalctl -u readtrace-api.service -n 100 --no-pager
+sudo systemctl --no-pager --full status readtrace-analysis.timer
+sudo systemctl list-timers readtrace-analysis.timer --no-pager
+sudo systemctl start readtrace-analysis.service
+sudo systemctl --no-pager --full status readtrace-analysis.service
+sudo journalctl -u readtrace-analysis.service -n 100 --no-pager
 curl --fail --silent --show-error http://127.0.0.1:3100/api/v1/session
 curl --fail --silent --show-error --cacert /etc/readtrace/tls/readtrace.crt https://<证书域名>:8443/
 curl --fail --silent --show-error --cacert /etc/readtrace/tls/readtrace.crt https://<证书域名>:8443/api/v1/session
@@ -197,15 +210,19 @@ sudo ss -lntp | grep -E ':(8443|3100)\b'
 
 ## 10. DeepSeek分析与采集
 
-DeepSeek分类是独立批处理，需要由受控运维任务分别执行帖子和评论分析。项目代码由root持有，命令继续使用无代码写权限的`readtrace`账号：
+DeepSeek分类由统一分析入口处理。每轮先分析帖子，再分析评论，每类最多处理10条；没有待分析内容时正常结束，不调用模型。项目代码由root持有，定时任务和手动命令都使用无代码写权限的`readtrace`账号：
 
 ```bash
 cd /opt/readtrace/current
-sudo -u readtrace npm run analyze:content -- --content-type POST --limit 10
-sudo -u readtrace npm run analyze:content -- --content-type COMMENT --limit 10
+sudo -u readtrace npm run analyze:all
 ```
 
-本部署没有自动执行以上命令。需要定时分析时，应单独增加systemd timer，并沿用同一环境文件和低并发限制。
+`readtrace-analysis.timer`在开机5分钟后首次触发，之后每30分钟触发一次，`Persistent=true`允许服务器停机错过周期后补触发一次。自动触发和管理员页面手动触发共用数据库全局锁；已有任务运行时不会重复调用模型。需要临时停用或重新启用自动分析时执行：
+
+```bash
+sudo systemctl disable --now readtrace-analysis.timer
+sudo systemctl enable --now readtrace-analysis.timer
+```
 
 小红书探针依赖有界面浏览器、人工登录状态和受控采集频率，不随API运行。无桌面的ECS不应直接承担探针采集；可以从受控采集节点产生探针产物，再通过受控导入流程写入数据库。
 
@@ -229,14 +246,20 @@ test "$(readlink -f /var/www/readtrace)" = "/var/www/readtrace"
 sudo rsync --archive --delete --chown=root:root --chmod=D755,F644 \
   /opt/readtrace/current/apps/web/dist/ /var/www/readtrace/
 sudo install -o root -g root -m 0644 deploy/systemd/readtrace-api.service /etc/systemd/system/readtrace-api.service
+sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.service /etc/systemd/system/readtrace-analysis.service
+sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.timer /etc/systemd/system/readtrace-analysis.timer
 sudo install -o root -g root -m 0644 deploy/nginx/readtrace.conf /etc/nginx/conf.d/readtrace.conf
 sudo chown -R root:root /opt/readtrace/current
 sudo chmod -R u=rwX,go=rX /opt/readtrace/current
 sudo systemctl daemon-reload
-sudo systemd-analyze verify /etc/systemd/system/readtrace-api.service
+sudo systemd-analyze verify /etc/systemd/system/readtrace-api.service \
+  /etc/systemd/system/readtrace-analysis.service \
+  /etc/systemd/system/readtrace-analysis.timer
 sudo nginx -t
 sudo systemctl start readtrace-api.service
+sudo systemctl enable --now readtrace-analysis.timer
 sudo systemctl is-active --quiet readtrace-api.service
+sudo systemctl is-active --quiet readtrace-analysis.timer
 sudo systemctl reload nginx
 ```
 
@@ -253,17 +276,23 @@ test "$(readlink -f /var/www/readtrace)" = "/var/www/readtrace"
 sudo rsync --archive --delete --chown=root:root --chmod=D755,F644 \
   /opt/readtrace/current/apps/web/dist/ /var/www/readtrace/
 sudo install -o root -g root -m 0644 deploy/systemd/readtrace-api.service /etc/systemd/system/readtrace-api.service
+sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.service /etc/systemd/system/readtrace-analysis.service
+sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.timer /etc/systemd/system/readtrace-analysis.timer
 sudo install -o root -g root -m 0644 deploy/nginx/readtrace.conf /etc/nginx/conf.d/readtrace.conf
 sudo chown -R root:root /opt/readtrace/current
 sudo chmod -R u=rwX,go=rX /opt/readtrace/current
 sudo systemctl daemon-reload
-sudo systemd-analyze verify /etc/systemd/system/readtrace-api.service
+sudo systemd-analyze verify /etc/systemd/system/readtrace-api.service \
+  /etc/systemd/system/readtrace-analysis.service \
+  /etc/systemd/system/readtrace-analysis.timer
 sudo nginx -t
 sudo systemctl start readtrace-api.service
+sudo systemctl enable --now readtrace-analysis.timer
 sudo systemctl is-active --quiet readtrace-api.service
+sudo systemctl is-active --quiet readtrace-analysis.timer
 sudo systemctl reload nginx
 ```
 
 数据库迁移不自动回滚。只有确认旧应用兼容当前数据库结构时才能回退应用；需要恢复数据库时，按照已确认的RDS快照恢复流程执行，不得手工删除表或迁移记录。
 
-回滚Nginx或systemd配置时，只恢复`readtrace.conf`和`readtrace-api.service`的上一版本。始终先执行`systemctl daemon-reload`、`systemd-analyze verify`和`nginx -t`，确认成功后再启动API并受控重载Nginx。不得改动ReadBookDashboard的配置或进程。
+回滚Nginx或systemd配置时，只恢复`readtrace.conf`、`readtrace-api.service`、`readtrace-analysis.service`和`readtrace-analysis.timer`的上一版本。始终先执行`systemctl daemon-reload`、`systemd-analyze verify`和`nginx -t`，确认成功后再启动API、启用分析定时器并受控重载Nginx。不得改动ReadBookDashboard的配置或进程。

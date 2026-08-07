@@ -1,0 +1,31 @@
+[Unit]
+Description=ReadTrace pending content analysis
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=readtrace
+Group=readtrace
+WorkingDirectory=/opt/readtrace/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/readtrace/readtrace.env
+ExecStart=/usr/bin/npm run analyze:all
+TimeoutStartSec=30min
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/readtrace/current
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { ErrorNotice, Panel } from "../components/common";
@@ -15,14 +15,33 @@ function ClassificationProgress({ label, total, classified }: { label: string; t
 
 export function DataManagementPage(): ReactNode {
   const resource = useResource(() => api.getDataManagementSummary(), []);
-  const header = <PageHeader eyebrow="数据资产总览" title="数据管理" description="查看采集规模、AI分类进度和需要处理的分析异常。" />;
+  const [startingAnalysis, setStartingAnalysis] = useState(false);
+  const [analysisMessage, setAnalysisMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+
+  async function triggerAnalysis(): Promise<void> {
+    setStartingAnalysis(true);
+    setAnalysisMessage(null);
+    try {
+      const response = await api.triggerAnalysis();
+      setAnalysisMessage(response.data.started
+        ? { tone: "success", text: "分析任务已经启动" }
+        : { tone: "success", text: "当前已有分析任务正在运行" });
+      resource.retry();
+    } catch {
+      setAnalysisMessage({ tone: "error", text: "分析任务启动失败，请稍后重试。" });
+    } finally {
+      setStartingAnalysis(false);
+    }
+  }
+
+  const header = <PageHeader eyebrow="数据资产总览" title="数据管理" description="查看采集规模、AI分类进度和需要处理的分析异常。" action={<button className="button button--primary" type="button" disabled={startingAnalysis} onClick={() => void triggerAnalysis()}>{startingAnalysis ? "正在启动" : "立即分析"}</button>} />;
   if (resource.loading) return <>{header}<SkeletonPage /></>;
   if (!resource.data) return <>{header}<ErrorNotice error={resource.error} retry={resource.retry} /></>;
   const data = resource.data.data;
   const total = data.totalPosts + data.totalComments;
   const classified = data.aiClassifiedPosts + data.aiClassifiedComments;
   const overallRatio = total > 0 ? classified / total : 0;
-  return <>{header}{resource.error ? <ErrorNotice error={resource.error} retry={resource.retry} compact /> : null}<div className="data-management-grid">
+  return <>{header}{analysisMessage ? <div className={`notice notice--${analysisMessage.tone}`} role={analysisMessage.tone === "error" ? "alert" : "status"}><p>{analysisMessage.text}</p></div> : null}{resource.error ? <ErrorNotice error={resource.error} retry={resource.retry} compact /> : null}<div className="data-management-grid">
     <Panel title="AI分类进度" caption={`全部内容共${formatNumber(total)}条`} className="classification-overview">
       <div className="classification-overview__lead"><span>整体分类完成率</span><strong>{formatPercent(overallRatio)}</strong><small>{formatNumber(classified)}条内容已有AI分类结果</small></div>
       {total === 0 ? <div className="data-management-empty"><Icon name="database" /><div><h3>尚未采集内容</h3><p>完成监控设置并成功采集后，这里会显示帖子、评论和AI分类进度。</p><Link className="button button--primary" to="/brands">前往监控设置</Link></div></div> : <div className="classification-progress-grid"><ClassificationProgress label="帖子" total={data.totalPosts} classified={data.aiClassifiedPosts} /><ClassificationProgress label="评论" total={data.totalComments} classified={data.aiClassifiedComments} /></div>}

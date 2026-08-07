@@ -73,5 +73,5 @@ export interface BatchSummary extends TokenUsage {
   skipped: number;
   failed: number;
   errorCodes: Record<string, number>;
-  stoppedReason?: "TOKEN_BUDGET_EXHAUSTED";
+  stoppedReason?: "TOKEN_BUDGET_EXHAUSTED" | "NON_RECOVERABLE_ERROR";
 }

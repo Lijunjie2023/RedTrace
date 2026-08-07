@@ -232,6 +232,37 @@ export async function createServer(config: RuntimeConfig): Promise<FastifyInstan
   app.get(`${API_ROOT}/data-management/summary`, async (request) => {
     return ok(request, await repository.getDataManagementSummary());
   });
+  app.post(`${API_ROOT}/analysis-runs`, async (request, reply) => {
+    if (config.dataMode !== "mysql") {
+      throw new RepositoryError("DATA_NOT_READY", 503, false, "自动分析只在持久化数据模式下可用。");
+    }
+    let context: Awaited<ReturnType<typeof import("../../../src/db/pool.js").createDatabaseContext>> | undefined;
+    try {
+      const [{ createDatabaseContext }, { loadDeepSeekConfig }, { safeRunSummary, startUnifiedAnalysis }] = await Promise.all([
+        import("../../../src/db/pool.js"),
+        import("../../../src/analysis/config.js"),
+        import("../../../src/analysis/run-all.js")
+      ]);
+      context = await createDatabaseContext();
+      const run = await startUnifiedAnalysis({ pool: context.pool, config: loadDeepSeekConfig(), source: "manual" });
+      if (!run.started) {
+        await context.pool.end();
+        return reply.status(202).send(ok(request, { started: false, reason: "already_running" }));
+      }
+      const activeContext = context;
+      void run.completion!.then((summary) => {
+        app.log.info({ analysis: safeRunSummary(summary) }, "analysis_run_completed");
+      }).catch(() => {
+        app.log.error({ errorCode: "analysis_failed", source: "manual" }, "analysis_run_failed");
+      }).finally(async () => {
+        await activeContext.pool.end().catch(() => undefined);
+      });
+      return reply.status(202).send(ok(request, { started: true }));
+    } catch {
+      await context?.pool.end().catch(() => undefined);
+      throw new RepositoryError("DEPENDENCY_UNAVAILABLE", 503, true, "分析服务暂时不可用，请稍后重试。");
+    }
+  });
   app.get(`${API_ROOT}/topics`, async (request) => {
     const options = parsePage(request.query);
     rejectRouteFilters(options, ["from", "to", "brandIds", "categoryIds", "problemTypeIds", "sentiments", "topicIds"]);
