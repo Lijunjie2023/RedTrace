@@ -19,7 +19,7 @@ export interface CreatedApiTask {
   taskId: number;
   dataSourceId: number;
   brandId: number;
-  searchTermId: number;
+  searchTerms: Array<{ searchTermId: number; keyword: string }>;
   keyword: string;
   noteLimit: number;
 }

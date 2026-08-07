@@ -8,7 +8,8 @@ import { CollectionTaskRepository } from "../src/db/persistence/task-repository.
 import {
   CollectionCredentialInputSchema,
   CollectionRunCreateInputSchema,
-  CollectionTaskStatusSchema
+  CollectionTaskStatusSchema,
+  parseCollectionKeywords
 } from "../packages/contracts/src/index.js";
 
 test("凭证使用随机向量加密且只能由正确主密钥解密", () => {
@@ -31,6 +32,9 @@ test("采集控制契约限制凭证、关键词、帖子上限和任务状态",
     noteLimit: 3
   });
   assert.throws(() => CollectionRunCreateInputSchema.parse({ keyword: "卡萨帝", noteLimit: 11 }));
+  assert.deepEqual(parseCollectionKeywords("卡萨帝, 海尔，卡萨帝,,Leader"), ["卡萨帝", "海尔", "Leader"]);
+  assert.equal(CollectionRunCreateInputSchema.parse({ brandId: "1", keyword: "卡萨帝， 海尔", noteLimit: 3 }).keyword, "卡萨帝,海尔");
+  assert.throws(() => CollectionRunCreateInputSchema.parse({ brandId: "1", keyword: "一,二,三,四,五,六", noteLimit: 3 }));
   assert.equal(CollectionTaskStatusSchema.parse("STOPPING"), "STOPPING");
   assert.equal(CollectionTaskStatusSchema.parse("STOPPED"), "STOPPED");
 });
@@ -67,6 +71,8 @@ test("管理员接口包含凭证配置、开始采集、停止采集和持久�
   assert.match(server, /status\(202\)/);
   assert.match(runner, /skippedNoCommentPostCount/);
   assert.match(runner, /shouldStop/);
+  assert.match(runner, /for \(const searchTerm of input\.task\.searchTerms\)/);
+  assert.match(runner, /const candidates = new Map/);
   assert.doesNotMatch(runner, /console\.(?:log|error)\([^\n]*(?:token|secret|apiKey|Authorization)/);
 });
 

@@ -171,21 +171,41 @@ export async function runCollectionTask(input: {
   });
 
   try {
-    const search = await call(client, SEARCH_PATH, {
-      keyword: input.task.keyword,
-      page: 1,
-      sortType: "time_descending",
-      noteType: "ALL",
-      timeFilter: "ONE_WEEK"
-    });
-    const notes = selectRelatedSearchNotes(search.data, input.task.keyword, input.task.noteLimit);
-    progress.fetchedPostCount += notes.length;
-    await service.tasks.addProgress(input.task.taskId, { fetchedPostCount: notes.length });
-    const stoppedAfterSearch = await stopIfRequested(service, input.task.taskId, progress);
-    if (stoppedAfterSearch) return stoppedAfterSearch;
+    const candidates = new Map<string, {
+      note: Record<string, unknown>;
+      matches: Array<{ searchTermId: number; matchedTermSnapshot: string }>;
+    }>();
+    for (const searchTerm of input.task.searchTerms) {
+      try {
+        const search = await call(client, SEARCH_PATH, {
+          keyword: searchTerm.keyword,
+          page: 1,
+          sortType: "time_descending",
+          noteType: "ALL",
+          timeFilter: "ONE_WEEK"
+        });
+        const notes = selectRelatedSearchNotes(search.data, searchTerm.keyword, input.task.noteLimit);
+        for (const note of notes) {
+          const noteId = noteIdOf(note);
+          if (!noteId) continue;
+          const existing = candidates.get(noteId);
+          const match = { searchTermId: searchTerm.searchTermId, matchedTermSnapshot: searchTerm.keyword };
+          if (existing) existing.matches.push(match);
+          else candidates.set(noteId, { note, matches: [match] });
+        }
+      } catch (error) {
+        if (error instanceof JustOneApiRequestError && error.code === "authentication_failed") throw error;
+        progress.failedCount += 1;
+        await service.tasks.addProgress(input.task.taskId, { failedCount: 1 });
+      }
+      const stoppedAfterSearch = await stopIfRequested(service, input.task.taskId, progress);
+      if (stoppedAfterSearch) return stoppedAfterSearch;
+    }
+    progress.fetchedPostCount += candidates.size;
+    await service.tasks.addProgress(input.task.taskId, { fetchedPostCount: candidates.size });
 
     let commentsTruncated = false;
-    for (const note of notes) {
+    for (const { note, matches } of candidates.values()) {
       const noteId = noteIdOf(note);
       if (!noteId) {
         progress.failedCount += 1;
@@ -196,7 +216,7 @@ export async function runCollectionTask(input: {
         const detail = await call(client, DETAIL_PATH, { noteId });
         const stoppedAfterDetail = await stopIfRequested(service, input.task.taskId, progress);
         if (stoppedAfterDetail) return stoppedAfterDetail;
-        const post = normalizeNoteDetail(detail.data, input.task.keyword);
+        const post = normalizeNoteDetail(detail.data, matches[0]!.matchedTermSnapshot);
         if (!post) {
           progress.failedCount += 1;
           await service.tasks.addProgress(input.task.taskId, { failedCount: 1 });
@@ -231,7 +251,7 @@ export async function runCollectionTask(input: {
             {
               post,
               comments: comments.map((comment) => ({ ...comment, rawPayload: comment })),
-              matches: [{ searchTermId: input.task.searchTermId, matchedTermSnapshot: input.task.keyword }],
+              matches,
               observedAt: new Date(),
               rawPayload: detail.data
             }

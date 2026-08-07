@@ -367,9 +367,27 @@ export const CollectionCredentialInputSchema = z.object({
     message: "凭证不能为空。"
   })
 });
+export function parseCollectionKeywords(value: string): string[] {
+  const unique = new Map<string, string>();
+  for (const raw of value.split(/[,，]/u)) {
+    const keyword = raw.trim();
+    if (!keyword) continue;
+    const key = keyword.toLocaleLowerCase("zh-CN");
+    if (!unique.has(key)) unique.set(key, keyword);
+  }
+  return [...unique.values()];
+}
+
 export const CollectionRunCreateInputSchema = z.object({
   brandId: z.string().min(1),
-  keyword: z.string().trim().min(1).max(50),
+  keyword: z.string().trim().min(1).max(50).transform((value, context) => {
+    const keywords = parseCollectionKeywords(value);
+    if (keywords.length === 0 || keywords.length > 5) {
+      context.addIssue({ code: "custom", message: "关键词数量必须在1到5个之间。" });
+      return z.NEVER;
+    }
+    return keywords.join(",");
+  }),
   noteLimit: z.number().int().min(1).max(10)
 });
 export type CollectionCredentialInput = z.infer<typeof CollectionCredentialInputSchema>;

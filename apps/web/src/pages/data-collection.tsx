@@ -13,6 +13,10 @@ import { errorMessage, formatDateTime, formatNumber } from "../utils/format";
 
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING", "STOPPING"]);
 
+function keywordCount(value: string): number {
+  return new Set(value.split(/[,，]/u).map((item) => item.trim().toLocaleLowerCase("zh-CN")).filter(Boolean)).size;
+}
+
 const credentialCopy: Record<CredentialKind, { title: string; caption: string; placeholder: string }> = {
   JUSTONEAPI: {
     title: "API采集凭证",
@@ -144,6 +148,7 @@ export function DataCollectionPage(): ReactNode {
   const analysisCredential = credentialMap.get("DEEPSEEK");
   const taskItems = tasks.data?.items ?? [];
   const hasActiveTask = taskItems.some((task) => ACTIVE_STATUSES.has(task.status));
+  const enteredKeywordCount = keywordCount(keyword);
   const brandNames = new Map((brands.data?.items ?? []).map((brand) => [brand.id, brand.name]));
 
   useEffect(() => {
@@ -191,7 +196,7 @@ export function DataCollectionPage(): ReactNode {
 
   async function startCollection(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (!brandId || !keyword.trim() || noteLimit < 1 || noteLimit > 10) return;
+    if (!brandId || enteredKeywordCount < 1 || enteredKeywordCount > 5 || noteLimit < 1 || noteLimit > 10) return;
     setCreating(true);
     setMessage(null);
     try {
@@ -246,9 +251,9 @@ export function DataCollectionPage(): ReactNode {
         {!analysisCredential?.configured ? <div className="collection-inline-warning" role="status">当前未配置AI分析凭证。采集可以正常进行，入库内容会等待分析。</div> : null}
         <form className="collection-form" onSubmit={(event) => void startCollection(event)}>
           <label><span>品牌</span><select required value={brandId} onChange={(event) => setBrandId(event.target.value)}><option value="">请选择已启用品牌</option>{enabledBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label>
-          <label><span>关键词</span><input required minLength={1} maxLength={50} value={keyword} placeholder="例如：卡萨帝" onChange={(event) => setKeyword(event.target.value)} /></label>
-          <label><span>帖子上限</span><input required type="number" min={1} max={10} step={1} value={noteLimit} onChange={(event) => setNoteLimit(Number(event.target.value))} /><small>每次最多采集10篇帖子。</small></label>
-          <button className="button button--primary" type="submit" disabled={creating || !collectionCredential?.configured || !brandId || !keyword.trim() || noteLimit < 1 || noteLimit > 10}>{creating ? "正在创建任务" : "开始采集"}</button>
+          <label><span>关键词</span><input required minLength={1} maxLength={50} value={keyword} placeholder="例如：卡萨帝,海尔,Leader" onChange={(event) => setKeyword(event.target.value)} /><small>最多5个关键词，使用中文或英文逗号隔开。</small></label>
+          <label><span>每个关键词的帖子上限</span><input required type="number" min={1} max={10} step={1} value={noteLimit} onChange={(event) => setNoteLimit(Number(event.target.value))} /><small>每个关键词最多采集10篇，重复帖子只处理一次。</small></label>
+          <button className="button button--primary" type="submit" disabled={creating || !collectionCredential?.configured || !brandId || enteredKeywordCount < 1 || enteredKeywordCount > 5 || noteLimit < 1 || noteLimit > 10}>{creating ? "正在创建任务" : "开始采集"}</button>
         </form>
         {!collectionCredential?.configured ? <p className="collection-form__hint">请先保存API采集凭证，再开始采集。</p> : enabledBrands.length === 0 ? <p className="collection-form__hint">当前没有已启用品牌，请先在监控设置中启用品牌。</p> : null}
       </Panel>

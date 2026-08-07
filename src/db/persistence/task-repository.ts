@@ -7,6 +7,7 @@ import type {
   CreateTaskInput,
   PersistenceErrorType
 } from "./types.js";
+import { parseCollectionKeywords } from "../../../packages/contracts/src/index.js";
 
 interface TaskSetupRow extends RowDataPacket {
   dataSourceId: number;
@@ -66,7 +67,11 @@ export class CollectionTaskRepository {
         [brandId]
       );
       if (active.length > 0) throw new PersistenceError("task_state_conflict", "collection_already_running");
-      const searchTermId = await this.ensureSearchTerm(connection, brandId, input.keyword);
+      const keywords = parseCollectionKeywords(input.keyword);
+      const searchTerms: CreatedApiTask["searchTerms"] = [];
+      for (const keyword of keywords) {
+        searchTerms.push({ keyword, searchTermId: await this.ensureSearchTerm(connection, brandId, keyword) });
+      }
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO collection_tasks (
            data_source_id, brand_id, trigger_type, status, keyword, requested_note_limit
@@ -78,7 +83,7 @@ export class CollectionTaskRepository {
         taskId: result.insertId,
         dataSourceId: brand.dataSourceId,
         brandId,
-        searchTermId,
+        searchTerms,
         keyword: input.keyword,
         noteLimit: input.noteLimit
       };
