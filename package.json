@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "tsc && npm run build --workspaces --if-present",
     "db:health": "tsx src/db/health.ts",
     "db:import-probe": "tsx src/db/import-probe.ts",
     "db:integration": "tsx src/db/integration.ts",

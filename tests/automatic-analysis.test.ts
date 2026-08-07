@@ -32,7 +32,7 @@ test("systemd每30分钟运行统一分析且支持错过后补触发", async ()
   ]);
   assert.match(service, /^User=readtrace$/m);
   assert.match(service, /^EnvironmentFile=\/etc\/readtrace\/readtrace\.env$/m);
-  assert.match(service, /analyze:all/);
+  assert.match(service, /node \/opt\/readtrace\/current\/dist\/analysis\/run-all-cli\.js/);
   assert.match(timer, /^OnBootSec=5min$/m);
   assert.match(timer, /^OnUnitActiveSec=30min$/m);
   assert.match(timer, /^Persistent=true$/m);

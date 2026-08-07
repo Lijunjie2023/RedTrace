@@ -10,7 +10,7 @@ Group=readtrace
 WorkingDirectory=/opt/readtrace/current
 Environment=NODE_ENV=production
 EnvironmentFile=/etc/readtrace/readtrace.env
-ExecStart=/usr/bin/npm run analyze:all
+ExecStart=/usr/bin/node /opt/readtrace/current/dist/analysis/run-all-cli.js
 TimeoutStartSec=30min
 UMask=0027
 
