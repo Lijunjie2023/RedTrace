@@ -2,9 +2,9 @@
 
 ## 1. 部署边界
 
-本方案面向一台Alibaba Cloud Linux 3 ECS，使用已经安装的Node.js 20、Nginx 1.20和Git。ReadTrace独立监听HTTPS 8443端口，API仅监听本机`127.0.0.1:3100`。
+本方案面向一台Alibaba Cloud Linux 3 ECS，使用已经安装的Node.js 20、Nginx 1.20和Git。ReadTrace使用`redtrace.xin`监听标准HTTPS 443端口，同时保留8443兼容入口；API仅监听本机`127.0.0.1:3100`。
 
-现有ReadBookDashboard继续使用80、8080和3180端口。本部署不修改这些端口的监听、反向代理或服务文件，也不在80端口增加跳转规则。
+现有ReadBookDashboard继续使用80、8080和3180端口。本部署不修改这些服务的监听、反向代理或服务文件；只在80端口增加匹配`redtrace.xin`的独立虚拟主机，用于证书校验和HTTPS跳转。
 
 当前代码还有以下运行边界：
 
@@ -134,17 +134,22 @@ sudo -u readtrace npm run db:migrate
 
 ## 6. TLS证书
 
-证书必须覆盖访问ReadTrace时使用的域名，并统一安装到以下路径：
+正式证书由Certbot管理，必须覆盖`redtrace.xin`，Nginx统一从以下路径读取：
 
-- `/etc/readtrace/tls/readtrace.crt`
-- `/etc/readtrace/tls/readtrace.key`
+- `/etc/letsencrypt/live/redtrace.xin/fullchain.pem`
+- `/etc/letsencrypt/live/redtrace.xin/privkey.pem`
 
 ```bash
-sudo install -o root -g root -m 0644 <证书文件> /etc/readtrace/tls/readtrace.crt
-sudo install -o root -g root -m 0600 <私钥文件> /etc/readtrace/tls/readtrace.key
+sudo dnf install -y certbot
+sudo install -d -o nginx -g nginx -m 0755 /var/www/letsencrypt/.well-known/acme-challenge
+sudo install -o root -g root -m 0644 deploy/nginx/redtrace-http.conf /etc/nginx/conf.d/redtrace-http.conf
+sudo nginx -t
+sudo nginx -s reload
+sudo certbot certonly --webroot --webroot-path /var/www/letsencrypt \
+  --domain redtrace.xin --non-interactive --agree-tos --register-unsafely-without-email
 ```
 
-不要把证书私钥放进仓库。Nginx配置没有启用HSTS，因为同一主机仍有现存HTTP服务；错误启用HSTS可能改变这些服务的浏览器访问行为。
+不要把证书私钥放进仓库。首次安装`readtrace.conf`前必须确认上述证书路径已经存在。Nginx配置没有启用HSTS，因为同一主机仍有现存HTTP服务；错误启用HSTS可能改变这些服务的浏览器访问行为。
 
 ## 7. 安装systemd和Nginx配置
 
@@ -154,6 +159,7 @@ sudo install -o root -g root -m 0644 deploy/systemd/readtrace-api.service /etc/s
 sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.service /etc/systemd/system/readtrace-analysis.service
 sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.timer /etc/systemd/system/readtrace-analysis.timer
 sudo install -o root -g root -m 0644 deploy/nginx/readtrace.conf /etc/nginx/conf.d/readtrace.conf
+sudo install -o root -g root -m 0644 deploy/nginx/redtrace-http.conf /etc/nginx/conf.d/redtrace-http.conf
 sudo systemctl daemon-reload
 sudo systemd-analyze verify /etc/systemd/system/readtrace-api.service \
   /etc/systemd/system/readtrace-analysis.service \
@@ -182,9 +188,9 @@ sudo setsebool -P httpd_can_network_connect 1
 
 ## 8. 安全组和网络
 
-在ECS安全组增加TCP 8443入方向规则，优先只允许公司出口地址或VPN地址访问。不要把3100、3180或RDS的3306端口开放到公网。
+在ECS安全组增加TCP 443入方向规则。8443兼容入口优先只允许公司出口地址或VPN地址访问。不要把3100、3180或RDS的3306端口开放到公网。
 
-本配置只新增8443监听，不覆盖80、8080或3180。应用使用同源`/api/v1`请求，不需要在前端配置额外API地址。
+本配置新增443监听并保留8443，不覆盖8080或3180；80端口只增加匹配`redtrace.xin`的证书校验和HTTPS跳转规则。应用使用同源`/api/v1`请求，不需要在前端配置额外API地址。
 
 ## 9. 验证
 
@@ -199,12 +205,12 @@ sudo systemctl start readtrace-analysis.service
 sudo systemctl --no-pager --full status readtrace-analysis.service
 sudo journalctl -u readtrace-analysis.service -n 100 --no-pager
 curl --fail --silent --show-error http://127.0.0.1:3100/api/v1/session
-curl --fail --silent --show-error --cacert /etc/readtrace/tls/readtrace.crt https://<证书域名>:8443/
-curl --fail --silent --show-error --cacert /etc/readtrace/tls/readtrace.crt https://<证书域名>:8443/api/v1/session
-sudo ss -lntp | grep -E ':(8443|3100)\b'
+curl --fail --silent --show-error https://redtrace.xin/
+curl --fail --silent --show-error https://redtrace.xin/api/v1/session
+sudo ss -lntp | grep -E ':(443|8443|3100)\b'
 ```
 
-期望API只监听`127.0.0.1:3100`，Nginx监听8443，前端刷新任意页面仍返回应用入口，`/api/v1/session`返回结构化响应。随后通过浏览器验证管理员登录、受保护页面访问和退出登录；不要在命令行历史中传递管理员密码。
+期望API只监听`127.0.0.1:3100`，Nginx同时监听443和8443，前端刷新任意页面仍返回应用入口，`/api/v1/session`返回结构化响应。随后通过浏览器验证管理员登录、受保护页面访问和退出登录；不要在命令行历史中传递管理员密码。
 
 验证日志时不得复制或回传环境文件、Authorization、Cookie、帖子正文或评论正文。
 
@@ -249,6 +255,7 @@ sudo install -o root -g root -m 0644 deploy/systemd/readtrace-api.service /etc/s
 sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.service /etc/systemd/system/readtrace-analysis.service
 sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.timer /etc/systemd/system/readtrace-analysis.timer
 sudo install -o root -g root -m 0644 deploy/nginx/readtrace.conf /etc/nginx/conf.d/readtrace.conf
+sudo install -o root -g root -m 0644 deploy/nginx/redtrace-http.conf /etc/nginx/conf.d/redtrace-http.conf
 sudo chown -R root:root /opt/readtrace/current
 sudo chmod -R u=rwX,go=rX /opt/readtrace/current
 sudo systemctl daemon-reload
@@ -279,6 +286,7 @@ sudo install -o root -g root -m 0644 deploy/systemd/readtrace-api.service /etc/s
 sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.service /etc/systemd/system/readtrace-analysis.service
 sudo install -o root -g root -m 0644 deploy/systemd/readtrace-analysis.timer /etc/systemd/system/readtrace-analysis.timer
 sudo install -o root -g root -m 0644 deploy/nginx/readtrace.conf /etc/nginx/conf.d/readtrace.conf
+sudo install -o root -g root -m 0644 deploy/nginx/redtrace-http.conf /etc/nginx/conf.d/redtrace-http.conf
 sudo chown -R root:root /opt/readtrace/current
 sudo chmod -R u=rwX,go=rX /opt/readtrace/current
 sudo systemctl daemon-reload
