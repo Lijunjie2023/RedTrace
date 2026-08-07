@@ -216,19 +216,12 @@ export function FilterBar({ search, setSearch, draftSearch, setDraftSearch, show
     .filter((item) => item.classificationType === "CATEGORY" && item.isEnabled)
     .sort((left, right) => left.sortOrder - right.sortOrder)
     .map((item) => ({ id: item.id, name: item.displayName })) ?? [];
-  const normalized = (value: URLSearchParams) => {
-    const next = new URLSearchParams(value);
-    next.sort();
-    return next.toString();
-  };
-  const hasPendingChanges = deferred && normalized(current) !== normalized(search);
   return (
     <div className={`filter-bar ${sticky ? "is-sticky" : ""}`} aria-label="数据筛选">
       {showDate ? <><label><span>开始时间</span><input type="date" value={current.get("from")?.slice(0, 10) ?? ""} onChange={(event) => update("from", event.target.value ? `${event.target.value}T00:00:00+08:00` : "")} /></label><label><span>结束时间</span><input type="date" value={current.get("to")?.slice(0, 10) ?? ""} onChange={(event) => update("to", event.target.value ? `${event.target.value}T23:59:59+08:00` : "")} /></label></> : null}
       <MultiSelectFilter id="brand-filter" label="监控品牌" options={brands.data?.items.map((brand) => ({ id: brand.id, name: brand.name })) ?? []} selected={selectedBrandIds} placeholder={brands.error ? "品牌暂不可用" : "全部品牌"} disabled={brands.loading || Boolean(brands.error)} open={openFilter === "brand"} onOpenChange={(open) => setOpenFilter(open ? "brand" : null)} onChange={(ids) => update("brandIds", ids.join(","))} />
       {showCategory ? <MultiSelectFilter id="category-filter" label="产品品类" options={categoryOptions} selected={selectedCategoryIds} placeholder={classifications.error ? "品类暂不可用" : "全部品类"} disabled={classifications.loading || Boolean(classifications.error)} open={openFilter === "category"} onOpenChange={(open) => setOpenFilter(open ? "category" : null)} onChange={(ids) => update("categoryIds", ids.join(","))} /> : null}
       {showSentiment ? <label><span>情感倾向</span><select value={current.get("sentiments") ?? current.get("sentiment") ?? ""} onChange={(event) => update("sentiments", event.target.value)}><option value="">全部</option><option value="NEGATIVE">负向</option><option value="NEUTRAL">中性</option><option value="POSITIVE">正向</option></select></label> : null}
-      {hasPendingChanges ? <span className="filter-bar__pending" role="status">筛选条件尚未查询</span> : null}
       {current.size > 0 || deferred ? <div className="filter-bar__actions"><button className="button button--quiet" type="button" onClick={clear}>清除筛选</button>{deferred ? <button className="button button--primary" type="button" onClick={apply}>查询</button> : null}</div> : null}
     </div>
   );

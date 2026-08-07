@@ -82,6 +82,32 @@ test("问题热榜最多十条降序且表头保持横排", async () => {
   assert.match(styles, /grid-template-columns:\s*minmax\(2\.75rem, auto\)\s+minmax\(/);
 });
 
+test("品类内容对比按业务顺序最多单行展示六项", async () => {
+  const [overview, styles] = await Promise.all([
+    source("apps/web/src/pages/overview.tsx"),
+    source("apps/web/src/styles.css")
+  ]);
+
+  assert.match(overview, /const CATEGORY_DISPLAY_ORDER = \["冰箱", "洗衣机", "空调", "水联网", "厨电", "彩电", "其他"\] as const/);
+  assert.match(overview, /categoryRanking[\s\S]*?slice\(0, 6\)/);
+  assert.match(overview, /className="category-dashboard-layout"[\s\S]*?className="category-dashboard-labels"/);
+  assert.match(overview, /"--category-count":\s*categories\.length/);
+  assert.doesNotMatch(overview, /<small>当前内容量<\/small>/);
+  assert.doesNotMatch(overview, /onToggle|点击品类后|onClick=\{\(\) => onToggle/);
+  assert.doesNotMatch(styles, /\.category-dashboard-grid > button:hover|\.category-dashboard-grid > button\.is-active/);
+  assert.match(styles, /\.category-dashboard-layout \{[^}]*grid-template-columns:\s*minmax\(7rem,\s*auto\)\s+minmax\(0,\s*1fr\)/);
+  assert.match(styles, /\.category-dashboard-grid \{[^}]*grid-template-columns:\s*repeat\(var\(--category-count\),\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(styles, /\.category-comparison__name \{[^}]*white-space:\s*nowrap/);
+  assert.doesNotMatch(styles, /\.category-dashboard-grid, \.classification-progress-grid \{ grid-template-columns:\s*1fr/);
+});
+
+test("延迟筛选只使用查询按钮提交且不显示待查询提示", async () => {
+  const common = await source("apps/web/src/components/common.tsx");
+
+  assert.match(common, /deferred \? <button className="button button--primary"[^>]*>查询<\/button>/);
+  assert.doesNotMatch(common, /筛选条件尚未查询|filter-bar__pending|hasPendingChanges/);
+});
+
 test("Web响应式外壳占满视口并避免依赖隐藏溢出掩盖布局问题", async () => {
   const styles = await source("apps/web/src/styles.css");
   const bodyBlock = styles.match(/body \{([^}]*)\}/)?.[1] ?? "";
@@ -96,7 +122,7 @@ test("Web响应式外壳占满视口并避免依赖隐藏溢出掩盖布局问�
   assert.match(styles, /@container sidebar \(min-width: 8rem\)/);
   assert.match(styles, /@container sidebar \(min-width: 9rem\)/);
   assert.match(styles, /@container sidebar \(min-width: 10rem\)/);
-  assert.match(styles, /\.category-dashboard-grid \{[^}]*repeat\(auto-fit,\s*minmax\(/);
+  assert.match(styles, /\.category-dashboard-grid \{[^}]*repeat\(var\(--category-count\),\s*minmax\(0,\s*1fr\)\)/);
   assert.match(styles, /\.content-layout \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)\s+minmax\(18rem, 24rem\)/);
   assert.match(styles, /\.trend-visual \{[^}]*overflow:\s*hidden/);
   assert.match(styles, /\.trend-visual svg \{[^}]*min-width:\s*0/);

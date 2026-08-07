@@ -200,3 +200,16 @@ test("第三版SQL只为分析任务增加原子租约字段", async () => {
   assert.match(sql, /KEY idx_analysis_records_claim \(status, lease_expires_at\)/);
   assert.doesNotMatch(sql, /\bDROP\b|\bTRUNCATE\b|\bDELETE\b/i);
 });
+
+test("第四版SQL把产品品类统一为七项业务词表", async () => {
+  const sql = await readFile(path.resolve("migrations/0004_product_category_taxonomy.sql"), "utf8");
+
+  for (const displayName of ["冰箱", "洗衣机", "空调", "水联网", "厨电", "彩电", "其他"]) {
+    assert.match(sql, new RegExp(`'${displayName}'`));
+  }
+  assert.match(sql, /classification_type\s*=\s*'category'/);
+  assert.match(sql, /WHERE classification_type = 'category' AND item_code = 'water_heater'/);
+  assert.match(sql, /ON DUPLICATE KEY UPDATE/);
+  assert.doesNotMatch(sql, /\bid\s*=/i);
+  assert.doesNotMatch(sql, /\bDROP\b|\bTRUNCATE\b|\bDELETE\b/i);
+});

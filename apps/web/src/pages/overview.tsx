@@ -9,10 +9,8 @@ import { recentShanghaiRange } from "../utils/date-range";
 import { enumLabel, formatDateTime, formatNumber, formatPercent } from "../utils/format";
 
 type TrendPoint = OverviewData["sentimentTrend"][number];
-
-function selectedIds(search: URLSearchParams, key: string): string[] {
-  return (search.get(key) ?? "").split(",").filter(Boolean);
-}
+const CATEGORY_DISPLAY_ORDER = ["冰箱", "洗衣机", "空调", "水联网", "厨电", "彩电", "其他"] as const;
+const CATEGORY_DISPLAY_INDEX = new Map<string, number>(CATEGORY_DISPLAY_ORDER.map((name, index) => [name, index]));
 
 function overviewSearch(search: URLSearchParams): URLSearchParams {
   const next = new URLSearchParams();
@@ -58,21 +56,23 @@ function TrendChart({ points, onDrill }: { points: TrendPoint[]; onDrill: (bucke
   );
 }
 
-function CategoryComparison({ data, selected, onToggle }: { data: OverviewData; selected: string[]; onToggle: (id: string) => void }): ReactNode {
-  const categories = data.categoryRanking.slice(0, 5);
+function CategoryComparison({ data }: { data: OverviewData }): ReactNode {
+  const categories = [...data.categoryRanking]
+    .sort((left, right) => (CATEGORY_DISPLAY_INDEX.get(left.categoryName) ?? Number.MAX_SAFE_INTEGER) - (CATEGORY_DISPLAY_INDEX.get(right.categoryName) ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, 6);
   const maxCategoryCount = Math.max(1, ...categories.map((item) => item.contentCount));
   return (
-    <Panel title="品类内容对比" caption="当前日期与品牌范围；点击品类后，整个驾驶舱同步筛选" className="category-problem-panel">
-      {categories.length ? <div className="category-dashboard-grid">{categories.map((item) => {
-        const active = selected.includes(item.categoryId);
-        return <button key={item.categoryId} className={active ? "is-active" : ""} type="button" aria-pressed={active} onClick={() => onToggle(item.categoryId)}>
+    <Panel title="品类内容对比" caption="当前日期与品牌范围" className="category-problem-panel">
+      {categories.length ? <div className="category-dashboard-layout"><div className="category-dashboard-labels" aria-hidden="true"><span>品类</span><span>当前内容量</span><span>相对量级</span><span>负面占比</span><span>主要问题</span></div><div className="category-dashboard-grid" style={{ "--category-count": categories.length } as CSSProperties}>{categories.map((item) => {
+        return <article key={item.categoryId} className="category-dashboard-column">
           <span className="category-comparison__name">{item.categoryName}</span>
-          <small>当前内容量</small><strong>{formatNumber(item.contentCount)}</strong>
-          <i aria-hidden="true"><b style={{ "--bar-size": `${(item.contentCount / maxCategoryCount) * 100}%` } as CSSProperties} /></i>
-          <dl><div><dt>负面占比</dt><dd>待统计</dd></div><div><dt>主要问题</dt><dd>待统计</dd></div></dl>
-        </button>;
-      })}</div> : <EmptyState kind="analysis" />}
-      <p className="panel-footnote"><Icon name="info" />品类卡片保留当前日期与品牌范围的完整分布，便于继续切换筛选；负面占比和主要问题待统计。</p>
+          <strong>{formatNumber(item.contentCount)}</strong>
+          <i aria-label={`相对量级${formatPercent(item.contentCount / maxCategoryCount)}`}><b style={{ "--bar-size": `${(item.contentCount / maxCategoryCount) * 100}%` } as CSSProperties} /></i>
+          <span className="category-dashboard-value is-unavailable">待统计</span>
+          <span className="category-dashboard-value is-unavailable">待统计</span>
+        </article>;
+      })}</div></div> : <EmptyState kind="analysis" />}
+      <p className="panel-footnote"><Icon name="info" />品类区域展示当前日期与品牌范围的完整分布；负面占比和主要问题待统计。</p>
     </Panel>
   );
 }
@@ -138,7 +138,6 @@ export function OverviewPage(): ReactNode {
 
   const { data } = resource.data;
   const selectedTopic = data.risingTopics.find((topic) => topic.topicId === selectedTopicId) ?? null;
-  const categoryIds = selectedIds(draftSearch, "categoryIds");
   const notCollected = data.collectionHealth === "NOT_COLLECTED";
   const drill = (extra: Record<string, string>) => {
     const next = new URLSearchParams(overviewFilters);
@@ -150,14 +149,6 @@ export function OverviewPage(): ReactNode {
     if (topicId === selectedTopicId) next.delete("topicId"); else next.set("topicId", topicId);
     setSearch(next);
   };
-  const toggleCategory = (categoryId: string) => {
-    const next = new URLSearchParams(draftSearch);
-    const current = selectedIds(draftSearch, "categoryIds");
-    const values = current.includes(categoryId) ? current.filter((id) => id !== categoryId) : [...current, categoryId];
-    if (values.length) next.set("categoryIds", values.join(",")); else next.delete("categoryIds");
-    next.delete("topicId");
-    setDraftSearch(next);
-  };
   const drillTrend = (bucket: string) => /^\d{4}-\d{2}-\d{2}$/.test(bucket) ? drill({ sentiments: "NEGATIVE", from: `${bucket}T00:00:00+08:00`, to: `${bucket}T23:59:59+08:00` }) : drill({ sentiments: "NEGATIVE" });
 
   return <>
@@ -168,7 +159,7 @@ export function OverviewPage(): ReactNode {
       <Panel title="负面问题变化" caption="点击数据点查看相关内容" className="trend-panel"><div className="trend-panel__topline"><div className="legend" aria-label="图例"><span><i className="legend__risk" />负面相关量</span></div></div><TrendChart points={data.sentimentTrend} onDrill={drillTrend} /><div className="metric-ribbon"><div><span>负面内容</span><strong>{formatNumber(data.metrics.negativeCount)}</strong></div><div><span>负面占比</span><strong>{formatPercent(data.metrics.negativeRatio)}</strong></div><div><span>帖子</span><strong>{formatNumber(data.metrics.postCount)}</strong></div><div><span>评论</span><strong>{formatNumber(data.metrics.commentCount)}</strong></div></div></Panel>
       <Panel title="问题热榜" caption="点击问题联动右侧原话" className="rising-topics">{data.risingTopics.length ? <><div className="topic-ranking-head" aria-hidden="true"><span>排名</span><span>问题</span><span>较上期</span><span>影响帖子</span><span>评论</span><span /></div><ol>{[...data.risingTopics].sort((left, right) => right.evidenceCount - left.evidenceCount).slice(0, 10).map((topic, index) => <li key={topic.topicId}><button type="button" className={topic.topicId === selectedTopicId ? "is-active" : ""} aria-pressed={topic.topicId === selectedTopicId} onClick={() => selectTopic(topic.topicId)}><span>{index + 1}</span><b>{topic.topicName}</b><em className={topic.changeRatio === null ? "is-unavailable" : ""}>{topic.changeRatio === null ? "-" : formatPercent(topic.changeRatio)}</em><small className={topic.affectedPostCount === null ? "is-unavailable" : ""}>{topic.affectedPostCount === null ? "-" : formatNumber(topic.affectedPostCount)}</small><small className={topic.commentCount === null ? "is-unavailable" : ""}>{topic.commentCount === null ? "-" : formatNumber(topic.commentCount)}</small><Icon name="arrow" /></button></li>)}</ol></> : <EmptyState kind="analysis" />}</Panel>
       <EvidencePanel defaultItems={data.highRiskContents} topicId={selectedTopic?.topicId ?? null} topicName={selectedTopic?.topicName ?? null} filters={overviewFilters} />
-      <CategoryComparison data={data} selected={categoryIds} onToggle={toggleCategory} />
+      <CategoryComparison data={data} />
       <SentimentComposition data={data} />
       <Panel title="数据覆盖与质量" caption="只展示当前能够验证的信息" className="quality-panel"><DataHealth health={data.collectionHealth} lastSuccessfulAt={data.lastSuccessfulCollectionAt} /><div className="quality-facts"><div><Icon name="database" /><span>内容覆盖</span><strong>{data.metrics.postCount === null || data.metrics.commentCount === null ? "待统计" : `${formatNumber(data.metrics.postCount + data.metrics.commentCount)}条`}</strong><small>帖子与评论</small></div><div><Icon name="check" /><span>可回溯样本</span><strong>{formatNumber(data.highRiskContents.length)}条</strong><small>当前接口返回的高风险证据</small></div><div><Icon name="status" /><span>采集状态</span><strong>{enumLabel(data.collectionHealth)}</strong><small>{data.lastSuccessfulCollectionAt ? `更新于${formatDateTime(data.lastSuccessfulCollectionAt)}` : "尚无成功采集"}</small></div></div></Panel>
     </div>}
