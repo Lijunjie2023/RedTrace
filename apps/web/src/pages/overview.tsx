@@ -106,7 +106,7 @@ function EvidencePanel({ defaultItems, topicId, topicName, filters }: { defaultI
   else if (evidence.loading) body = <div className="evidence-loading" role="status"><span className="loading-mark" />正在读取相关原话</div>;
   else if (evidence.error || !evidence.data) body = <ErrorNotice error={evidence.error} retry={evidence.retry} compact />;
   else body = evidence.data.items.length ? evidence.data.items.slice(0, 4).map((item) => <TopicEvidenceItem key={`${item.contentType}-${item.contentId}`} item={item} />) : <EmptyState kind="filtered" />;
-  return <Panel title="代表性原话" caption={topicName ? `当前问题：${topicName}` : "高风险内容优先"} className="risk-evidence">{body}</Panel>;
+  return <Panel title="代表性原话" caption={topicName ? `当前问题：${topicName}` : "高风险内容优先"} className="risk-evidence"><div className="risk-evidence__body">{body}</div></Panel>;
 }
 
 export function OverviewPage(): ReactNode {

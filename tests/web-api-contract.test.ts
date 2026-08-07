@@ -61,6 +61,27 @@ test("常见桌面宽度保持问题变化、热榜和代表性原话三栏", as
   assert.doesNotMatch(styles, /@media \(min-width: 1024px\) and \(max-width: 1199px\)/);
 });
 
+test("首页主三栏等高且趋势内容填满左栏", async () => {
+  const styles = await source("apps/web/src/styles.css");
+
+  assert.match(styles, /--overview-primary-panel-height:\s*clamp\(/);
+  assert.match(styles, /\.trend-panel, \.rising-topics, \.risk-evidence \{[^}]*height:\s*var\(--overview-primary-panel-height\)/);
+  assert.match(styles, /\.trend-panel \{[^}]*display:\s*flex[^}]*flex-direction:\s*column/);
+  assert.match(styles, /\.trend-panel \.trend-visual \{[^}]*flex:\s*1/);
+  assert.match(styles, /\.trend-panel \.trend-visual svg \{[^}]*height:\s*100%/);
+});
+
+test("问题热榜最多十条降序且表头保持横排", async () => {
+  const [overview, styles] = await Promise.all([
+    source("apps/web/src/pages/overview.tsx"),
+    source("apps/web/src/styles.css")
+  ]);
+
+  assert.match(overview, /sort\(\(left, right\) => right\.evidenceCount - left\.evidenceCount\)\.slice\(0, 10\)/);
+  assert.match(styles, /\.topic-ranking-head \{[^}]*white-space:\s*nowrap/);
+  assert.match(styles, /grid-template-columns:\s*minmax\(2\.75rem, auto\)\s+minmax\(/);
+});
+
 test("Web响应式外壳占满视口并避免依赖隐藏溢出掩盖布局问题", async () => {
   const styles = await source("apps/web/src/styles.css");
   const bodyBlock = styles.match(/body \{([^}]*)\}/)?.[1] ?? "";
