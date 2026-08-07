@@ -209,7 +209,7 @@ export const CollectionTaskSummarySchema = z.object({
   brandId: z.string().min(1),
   triggerType: z.enum(["MANUAL", "SCHEDULED", "RETRY"]),
   keyword: z.string().nullable(),
-  noteLimit: z.number().int().min(1).max(10).nullable(),
+  noteLimit: z.number().int().min(1).max(100).nullable(),
   status: CollectionTaskStatusSchema,
   startedAt: z.string().datetime().nullable(),
   finishedAt: z.string().datetime().nullable(),
@@ -388,7 +388,7 @@ export const CollectionRunCreateInputSchema = z.object({
     }
     return keywords.join(",");
   }),
-  noteLimit: z.number().int().min(1).max(10)
+  noteLimit: z.number().int().min(1).max(100)
 });
 export type CollectionCredentialInput = z.infer<typeof CollectionCredentialInputSchema>;
 export type CollectionRunCreateInput = z.infer<typeof CollectionRunCreateInputSchema>;

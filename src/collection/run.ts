@@ -13,6 +13,18 @@ const DETAIL_PATH = "/api/xiaohongshu/get-note-detail/v1";
 const COMMENT_PATH = "/api/xiaohongshu/get-note-comment/v2";
 export const DEFAULT_MAX_COMMENT_PAGES = 20;
 export const DEFAULT_MAX_COMMENTS_PER_NOTE = 1_000;
+export const DEFAULT_MAX_SEARCH_PAGES = 20;
+
+interface SearchPageSession {
+  searchId: string | null;
+  sessionId: string | null;
+}
+
+export interface CollectedSearchPages {
+  notes: Array<Record<string, unknown>>;
+  pageCount: number;
+  stopped: boolean;
+}
 
 export interface CommentPagination {
   hasMore: boolean;
@@ -30,6 +42,51 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function optionalText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readSearchSession(data: unknown): SearchPageSession {
+  const apiInfo = record(record(data)?.api_info) ?? record(record(data)?.apiInfo);
+  return {
+    searchId: optionalText(apiInfo?.search_id) ?? optionalText(apiInfo?.searchId),
+    sessionId: optionalText(apiInfo?.session_id) ?? optionalText(apiInfo?.sessionId)
+  };
+}
+
+export async function collectSearchPages(input: {
+  keyword: string;
+  limit: number;
+  fetchPage: (page: number, searchId: string | null, sessionId: string | null) => Promise<ApiEnvelope>;
+  shouldStop?: () => Promise<boolean>;
+  maxPages?: number;
+}): Promise<CollectedSearchPages> {
+  const maxPages = input.maxPages ?? DEFAULT_MAX_SEARCH_PAGES;
+  if (!Number.isSafeInteger(input.limit) || input.limit <= 0 || input.limit > 100
+    || !Number.isSafeInteger(maxPages) || maxPages <= 0) {
+    throw new Error("search_pagination_limit_invalid");
+  }
+  const notes = new Map<string, Record<string, unknown>>();
+  let session: SearchPageSession = { searchId: null, sessionId: null };
+  for (let page = 1; page <= maxPages; page += 1) {
+    const response = await input.fetchPage(page, session.searchId, session.sessionId);
+    const pageData = record(response.data);
+    const rawNotes = Array.isArray(pageData?.notes) ? pageData.notes : [];
+    for (const note of selectRelatedSearchNotes(response.data, input.keyword, input.limit)) {
+      const noteId = noteIdOf(note);
+      if (noteId && !notes.has(noteId) && notes.size < input.limit) notes.set(noteId, note);
+    }
+    if (await input.shouldStop?.() === true) {
+      return { notes: [...notes.values()], pageCount: page, stopped: true };
+    }
+    if (notes.size >= input.limit || rawNotes.length === 0) {
+      return { notes: [...notes.values()], pageCount: page, stopped: false };
+    }
+    session = readSearchSession(response.data);
+  }
+  return { notes: [...notes.values()], pageCount: maxPages, stopped: false };
 }
 
 export function readCommentPagination(data: unknown): CommentPagination {
@@ -177,15 +234,25 @@ export async function runCollectionTask(input: {
     }>();
     for (const searchTerm of input.task.searchTerms) {
       try {
-        const search = await call(client, SEARCH_PATH, {
+        const search = await collectSearchPages({
           keyword: searchTerm.keyword,
-          page: 1,
-          sortType: "time_descending",
-          noteType: "ALL",
-          timeFilter: "ONE_WEEK"
+          limit: input.task.noteLimit,
+          shouldStop: () => service.tasks.shouldStop(input.task.taskId),
+          fetchPage: (page, searchId, sessionId) => call(client, SEARCH_PATH, {
+            keyword: searchTerm.keyword,
+            page,
+            ...(searchId === null ? {} : { searchId }),
+            ...(sessionId === null ? {} : { sessionId }),
+            sortType: "time_descending",
+            noteType: "ALL",
+            timeFilter: "ONE_WEEK"
+          })
         });
-        const notes = selectRelatedSearchNotes(search.data, searchTerm.keyword, input.task.noteLimit);
-        for (const note of notes) {
+        if (search.stopped) {
+          const stopped = await stopIfRequested(service, input.task.taskId, progress);
+          if (stopped) return stopped;
+        }
+        for (const note of search.notes) {
           const noteId = noteIdOf(note);
           if (!noteId) continue;
           const existing = candidates.get(noteId);

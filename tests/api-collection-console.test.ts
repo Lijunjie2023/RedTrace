@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import type { Pool } from "mysql2/promise";
-import { collectCommentPages, readCommentPagination } from "../src/collection/run.js";
+import { collectCommentPages, collectSearchPages, readCommentPagination } from "../src/collection/run.js";
 import { CredentialCrypto } from "../src/credentials/crypto.js";
 import { CollectionTaskRepository } from "../src/db/persistence/task-repository.js";
 import {
@@ -31,12 +31,34 @@ test("采集控制契约限制凭证、关键词、帖子上限和任务状态",
     keyword: "卡萨帝",
     noteLimit: 3
   });
-  assert.throws(() => CollectionRunCreateInputSchema.parse({ keyword: "卡萨帝", noteLimit: 11 }));
+  assert.equal(CollectionRunCreateInputSchema.parse({ brandId: "1", keyword: "卡萨帝", noteLimit: 100 }).noteLimit, 100);
+  assert.throws(() => CollectionRunCreateInputSchema.parse({ brandId: "1", keyword: "卡萨帝", noteLimit: 101 }));
   assert.deepEqual(parseCollectionKeywords("卡萨帝, 海尔，卡萨帝,,Leader"), ["卡萨帝", "海尔", "Leader"]);
   assert.equal(CollectionRunCreateInputSchema.parse({ brandId: "1", keyword: "卡萨帝， 海尔", noteLimit: 3 }).keyword, "卡萨帝,海尔");
   assert.throws(() => CollectionRunCreateInputSchema.parse({ brandId: "1", keyword: "一,二,三,四,五,六", noteLimit: 3 }));
   assert.equal(CollectionTaskStatusSchema.parse("STOPPING"), "STOPPING");
   assert.equal(CollectionTaskStatusSchema.parse("STOPPED"), "STOPPED");
+});
+
+test("帖子搜索使用API会话连续分页并累计到指定上限", async () => {
+  const requests: Array<{ page: number; searchId: string | null; sessionId: string | null }> = [];
+  const result = await collectSearchPages({
+    keyword: "卡萨帝",
+    limit: 3,
+    fetchPage: async (page, searchId, sessionId) => {
+      requests.push({ page, searchId, sessionId });
+      return page === 1
+        ? { code: 0, data: { notes: [{ id: "note-1", title: "卡萨帝冰箱" }, { id: "note-2", title: "卡萨帝洗衣机" }], api_info: { search_id: "search-1", session_id: "session-1" } } }
+        : { code: 0, data: { notes: [{ id: "note-2", title: "卡萨帝洗衣机" }, { id: "note-3", title: "卡萨帝空调" }], api_info: { search_id: "search-2", session_id: "session-2" } } };
+    }
+  });
+
+  assert.deepEqual(requests, [
+    { page: 1, searchId: null, sessionId: null },
+    { page: 2, searchId: "search-1", sessionId: "session-1" }
+  ]);
+  assert.deepEqual(result.notes.map((note) => note.id), ["note-1", "note-2", "note-3"]);
+  assert.equal(result.stopped, false);
 });
 
 test("定时分析和手动分析优先读取后台保存的 DeepSeek 凭证", async () => {
@@ -98,6 +120,8 @@ test("前端提供API采集入口、凭证状态、开始停止和六项进度",
   }
   assert.match(client, /saveServiceCredential/);
   assert.match(client, /stopCollection/);
+  assert.match(page, /max=\{100\}/);
+  assert.match(page, /最多采集100篇/);
 });
 
 test("评论采集按游标分页、去重并在完整结束时返回全部评论", async () => {
