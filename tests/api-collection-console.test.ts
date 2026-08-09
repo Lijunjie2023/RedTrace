@@ -61,6 +61,11 @@ test("帖子搜索使用API会话连续分页并累计到指定上限", async ()
   assert.equal(result.stopped, false);
 });
 
+test("API采集只会继续处理判定为大家电相关的帖子详情", async () => {
+  const source = await readFile("src/collection/run.ts", "utf8");
+  assert.match(source, /post\.relevance !== "related"/);
+});
+
 test("定时分析和手动分析优先读取后台保存的 DeepSeek 凭证", async () => {
   const [config, cli, server] = await Promise.all([
     readFile("src/analysis/config.ts", "utf8"),

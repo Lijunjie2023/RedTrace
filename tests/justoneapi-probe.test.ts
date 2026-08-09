@@ -56,6 +56,22 @@ test("JustOneAPI详情映射为现有标准帖子结构并保留缺失值", () =
   assert.equal(post?.sourceUrl, "https://www.xiaohongshu.com/explore/note-1");
 });
 
+test("JustOneAPI详情必须同时命中关键词和大家电语境", () => {
+  const unrelated = normalizeNoteDetail({ note_list: [{
+    id: "pony-1",
+    title: "画了小马塑",
+    desc: "头发加了挑染，可爱标志是黑洞，哥妹一个统帅一个国王天角兽很合理"
+  }] }, "统帅");
+  const related = normalizeNoteDetail({ note_list: [{
+    id: "appliance-1",
+    title: "统帅洗衣机使用体验",
+    desc: "脱水时声音有些大"
+  }] }, "统帅");
+
+  assert.equal(unrelated?.relevance, "uncertain");
+  assert.equal(related?.relevance, "related");
+});
+
 test("JustOneAPI评论映射一级评论和内嵌回复关系", () => {
   const comments = normalizeCommentPage({ comments: [{
     id: "c1", note_id: "note-1", content: "一级", user: { nickname: "甲" }, time: 123,

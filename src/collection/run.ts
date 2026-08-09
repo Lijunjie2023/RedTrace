@@ -289,6 +289,7 @@ export async function runCollectionTask(input: {
           await service.tasks.addProgress(input.task.taskId, { failedCount: 1 });
           continue;
         }
+        if (post.relevance !== "related") continue;
 
         const commentPages = await collectCommentPages({
           noteId,

@@ -2,6 +2,12 @@ import type { Comment, Post } from "../xhs-probe/types.js";
 
 type JsonRecord = Record<string, unknown>;
 
+const APPLIANCE_CONTEXT_TERMS = [
+  "家电", "冰箱", "冰柜", "冷柜", "酒柜", "洗衣机", "干衣机", "烘干机", "洗烘",
+  "空调", "热水器", "电视", "彩电", "厨电", "油烟机", "烟机", "灶具", "烤箱",
+  "蒸箱", "洗碗机", "消毒柜", "净水器", "饮水机", "净化器", "除湿机"
+] as const;
+
 function record(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : null;
 }
@@ -18,6 +24,17 @@ function count(value: unknown): number | null {
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
 
 function noteUrl(noteId: string): string { return `https://www.xiaohongshu.com/explore/${encodeURIComponent(noteId)}`; }
+
+function applianceRelevance(value: string, keyword: string): Pick<Post, "relevance" | "relevanceTerms"> {
+  const normalizedValue = value.toLocaleLowerCase("zh-CN");
+  const normalizedKeyword = keyword.trim().toLocaleLowerCase("zh-CN");
+  const categoryTerms = APPLIANCE_CONTEXT_TERMS.filter((term) => normalizedValue.includes(term.toLocaleLowerCase("zh-CN")));
+  const hasKeyword = normalizedKeyword.length > 0 && normalizedValue.includes(normalizedKeyword);
+  return {
+    relevance: hasKeyword && categoryTerms.length > 0 ? "related" : "uncertain",
+    relevanceTerms: [...(hasKeyword ? [keyword.trim()] : []), ...categoryTerms]
+  };
+}
 
 export function selectRelatedSearchNotes(data: unknown, keyword: string, limit: number): JsonRecord[] {
   const notes = array(record(data)?.notes);
@@ -40,16 +57,18 @@ export function normalizeNoteDetail(data: unknown, keyword: string): Post | null
   const images = array(note.images_list).map(record).map((item) => text(item?.url) ?? text(item?.origin_img) ?? text(item?.original)).filter((item): item is string => Boolean(item));
   const time = typeof note.time === "number" || typeof note.time === "string" ? note.time : null;
   const lastUpdateTime = typeof note.last_update_time === "number" || typeof note.last_update_time === "string" ? note.last_update_time : null;
+  const title = text(note.title);
+  const description = text(note.desc);
+  const relevance = applianceRelevance(`${title ?? ""}\n${description ?? ""}\n${topics.join("\n")}`, keyword);
   return {
     noteId,
-    title: text(note.title),
+    title,
     author: { nickname: text(author?.nickname) ?? text(author?.name) },
     displayedTime: time === null ? null : String(time),
     interactionSummary: null,
     sourceUrl: noteUrl(noteId),
-    relevance: "related",
-    relevanceTerms: [keyword],
-    description: text(note.desc),
+    ...relevance,
+    description,
     ipLocation: text(note.ip_location),
     time,
     lastUpdateTime,
